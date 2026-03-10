@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from backend.database import get_db_session
 from backend.models.journal_entry import JournalEntry
+from backend.models.project import Project
 from backend.services.journal_generator import JournalGenerator
 from shared.logging_config import get_logger
 
@@ -64,12 +65,20 @@ def list_journals(
 
         journals = query.order_by(JournalEntry.start_time.desc()).offset(offset).limit(limit).all()
 
+        # 获取所有项目ID对应的项目名称
+        project_ids = [j.project_id for j in journals if j.project_id is not None]
+        projects = {}
+        if project_ids:
+            for p in session.query(Project).filter(Project.id.in_(project_ids)).all():
+                projects[p.id] = p.name
+
         logger.info(f"返回 {len(journals)} 条日志条目")
         return [
             {
                 "id": j.id,
                 "session_id": j.session_id,
                 "project_id": j.project_id,
+                "project_name": projects.get(j.project_id) if j.project_id else None,
                 "start_time": j.start_time.isoformat(),
                 "end_time": j.end_time.isoformat(),
                 "work_type": j.work_type,

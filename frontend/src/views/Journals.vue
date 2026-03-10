@@ -79,6 +79,9 @@
         >
           <div class="journal-header">
             <div>
+              <el-tag v-if="journal.project_name" type="info" size="small" effect="plain">
+                {{ journal.project_name }}
+              </el-tag>
               <el-tag :type="workTypeColor(journal.work_type)" size="large">
                 {{ journal.work_type }}
               </el-tag>
