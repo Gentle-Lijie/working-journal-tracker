@@ -67,3 +67,4 @@ htmlcov/
 *.db
 *.sqlite
 *.sqlite3
+.playwright-mcp/
