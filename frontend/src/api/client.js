@@ -8,6 +8,36 @@ const client = axios.create({
   },
 })
 
+// 请求日志拦截器
+client.interceptors.request.use(
+  (config) => {
+    const params = config.params ? `?${new URLSearchParams(config.params)}` : ''
+    console.log(`[API] ${config.method.toUpperCase()} ${config.baseURL}${config.url}${params}`)
+    return config
+  },
+  (error) => {
+    console.error('[API] 请求错误:', error.message)
+    return Promise.reject(error)
+  }
+)
+
+// 响应日志拦截器
+client.interceptors.response.use(
+  (response) => {
+    const { config, status, data } = response
+    const count = Array.isArray(data) ? `(${data.length}条)` : ''
+    console.log(`[API] ${config.method.toUpperCase()} ${config.url} => ${status} ${count}`)
+    return response
+  },
+  (error) => {
+    const { config, response } = error
+    const status = response?.status || 'NETWORK_ERROR'
+    const detail = response?.data?.detail || error.message
+    console.error(`[API] ${config?.method?.toUpperCase()} ${config?.url} => ${status}: ${detail}`)
+    return Promise.reject(error)
+  }
+)
+
 // 项目API
 export const projectApi = {
   list(params = {}) {
@@ -92,6 +122,16 @@ export const aiApi = {
 export const gitApi = {
   log(params = {}) {
     return client.get('/git/log', { params })
+  },
+}
+
+// 系统日志API
+export const logApi = {
+  list(params = {}) {
+    return client.get('/logs', { params })
+  },
+  tail(lines = 50) {
+    return client.get('/logs/tail', { params: { lines } })
   },
 }
 

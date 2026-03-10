@@ -10,13 +10,16 @@ from backend.models.activity import Activity
 from backend.models.journal_entry import JournalEntry
 from backend.models.token_usage import TokenUsage
 from backend.models.work_session import WorkSession
+from shared.logging_config import get_logger
 
+logger = get_logger(__name__)
 router = APIRouter(prefix="/api/stats", tags=["stats"])
 
 
 @router.get("/daily")
 def daily_stats(date: Optional[str] = Query(None), project_id: Optional[int] = Query(None)):
     """每日统计"""
+    logger.info(f"查询每日统计: date={date}, project_id={project_id}")
     if date:
         target_date = datetime.fromisoformat(date).date()
     else:
@@ -63,6 +66,7 @@ def daily_stats(date: Optional[str] = Query(None), project_id: Optional[int] = Q
         for j in journals:
             work_type_dist[j.work_type] = work_type_dist.get(j.work_type, 0) + 1
 
+        logger.info(f"每日统计结果: date={target_date.isoformat()}, sessions={len(sessions)}, activities={len(activities)}, journals={len(journals)}")
         return {
             "date": target_date.isoformat(),
             "work_duration": int(total_duration),
@@ -80,6 +84,7 @@ def daily_stats(date: Optional[str] = Query(None), project_id: Optional[int] = Q
 @router.get("/tokens")
 def token_stats(days: int = Query(7, le=90), project_id: Optional[int] = Query(None)):
     """Token使用统计"""
+    logger.info(f"查询Token使用统计: days={days}, project_id={project_id}")
     start = datetime.now() - timedelta(days=days)
 
     with get_db_session() as session:
@@ -98,6 +103,7 @@ def token_stats(days: int = Query(7, le=90), project_id: Optional[int] = Query(N
             daily_usage[date_key]["cost"] += u.cost_estimate
             daily_usage[date_key]["count"] += 1
 
+        logger.info(f"Token统计结果: total_tokens={total_tokens}, total_cost={total_cost:.4f}, total_calls={len(usages)}")
         return {
             "period_days": days,
             "total_tokens": total_tokens,
@@ -110,6 +116,7 @@ def token_stats(days: int = Query(7, le=90), project_id: Optional[int] = Query(N
 @router.get("/work-types")
 def work_type_stats(days: int = Query(30, le=365), project_id: Optional[int] = Query(None)):
     """工作类型分布统计"""
+    logger.info(f"查询工作类型分布统计: days={days}, project_id={project_id}")
     start = datetime.now() - timedelta(days=days)
 
     with get_db_session() as session:
@@ -122,6 +129,7 @@ def work_type_stats(days: int = Query(30, le=365), project_id: Optional[int] = Q
         for j in journals:
             distribution[j.work_type] = distribution.get(j.work_type, 0) + 1
 
+        logger.info(f"工作类型统计结果: total_journals={len(journals)}, types={len(distribution)}")
         return {
             "period_days": days,
             "total_journals": len(journals),

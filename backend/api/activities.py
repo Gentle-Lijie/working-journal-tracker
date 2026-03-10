@@ -7,7 +7,9 @@ from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
 from backend.services.activity_tracker import ActivityTracker
+from shared.logging_config import get_logger
 
+logger = get_logger(__name__)
 router = APIRouter(prefix="/api/activities", tags=["activities"])
 tracker = ActivityTracker()
 
@@ -42,6 +44,7 @@ def list_activities(
     offset: int = Query(0),
 ):
     """查询活动记录"""
+    logger.info(f"查询活动记录: session_id={session_id}, project_id={project_id}, activity_type={activity_type}, from={from_time}, to={to_time}, limit={limit}, offset={offset}")
     from_dt = datetime.fromisoformat(from_time) if from_time else None
     to_dt = datetime.fromisoformat(to_time) if to_time else None
 
@@ -55,6 +58,7 @@ def list_activities(
         offset=offset,
     )
 
+    logger.info(f"返回 {len(activities)} 条活动记录")
     return [
         {
             "id": a.id,
@@ -72,10 +76,12 @@ def list_activities(
 @router.post("")
 def create_activity(data: ActivityCreate):
     """创建活动记录"""
+    logger.info(f"创建活动记录: session_id={data.session_id}, activity_type={data.activity_type}, description={data.description}")
     activity = tracker.add_activity(
         session_id=data.session_id,
         activity_type=data.activity_type,
         description=data.description,
         metadata=data.metadata,
     )
+    logger.info(f"活动记录创建成功: id={activity.id}")
     return {"id": activity.id, "message": "活动记录已创建"}

@@ -11,10 +11,11 @@
           class="nav-menu"
         >
           <el-menu-item index="/">仪表盘</el-menu-item>
-          <el-menu-item index="/journals">日志</el-menu-item>
+          <el-menu-item index="/journals">工作日志</el-menu-item>
           <el-menu-item index="/projects">项目</el-menu-item>
           <el-menu-item index="/config">配置</el-menu-item>
           <el-menu-item index="/stats">统计</el-menu-item>
+          <el-menu-item index="/logs">系统日志</el-menu-item>
         </el-menu>
         <div class="project-selector">
           <el-select

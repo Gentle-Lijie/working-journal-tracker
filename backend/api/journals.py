@@ -9,7 +9,9 @@ from pydantic import BaseModel
 from backend.database import get_db_session
 from backend.models.journal_entry import JournalEntry
 from backend.services.journal_generator import JournalGenerator
+from shared.logging_config import get_logger
 
+logger = get_logger(__name__)
 router = APIRouter(prefix="/api/journals", tags=["journals"])
 generator = JournalGenerator()
 
@@ -45,6 +47,7 @@ def list_journals(
     offset: int = Query(0),
 ):
     """查询日志条目"""
+    logger.info(f"查询日志条目: from={from_date}, to={to_date}, work_type={work_type}, project_id={project_id}, limit={limit}, offset={offset}")
     with get_db_session() as session:
         query = session.query(JournalEntry)
 
@@ -61,6 +64,7 @@ def list_journals(
 
         journals = query.order_by(JournalEntry.start_time.desc()).offset(offset).limit(limit).all()
 
+        logger.info(f"返回 {len(journals)} 条日志条目")
         return [
             {
                 "id": j.id,
@@ -80,6 +84,7 @@ def list_journals(
 @router.post("/generate")
 def generate_journal(data: JournalGenerateRequest):
     """生成日志条目"""
+    logger.info(f"生成日志条目: start_time={data.start_time}, end_time={data.end_time}, session_id={data.session_id}, project_id={data.project_id}")
     start_time = datetime.fromisoformat(data.start_time)
     end_time = datetime.fromisoformat(data.end_time)
 
@@ -91,8 +96,10 @@ def generate_journal(data: JournalGenerateRequest):
     )
 
     if not entry:
+        logger.warning(f"日志生成失败: 没有找到活动记录 (start_time={data.start_time}, end_time={data.end_time})")
         return {"success": False, "message": "没有找到活动记录"}
 
+    logger.info(f"日志生成成功: id={entry.id}, work_type={entry.work_type}, tokens_used={entry.tokens_used}")
     return {
         "success": True,
         "journal": {

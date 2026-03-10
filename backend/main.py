@@ -1,20 +1,15 @@
 """FastAPI应用入口"""
 
-import logging
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.api import activities, ai, config, git, journals, projects, stats
+from backend.api import activities, ai, config, git, journals, logs, projects, stats
 from backend.database import init_database
+from shared.logging_config import setup_logging, get_logger
 
 # 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
-
-logger = logging.getLogger(__name__)
+setup_logging()
+logger = get_logger(__name__)
 
 # 创建FastAPI应用
 app = FastAPI(
@@ -40,6 +35,7 @@ app.include_router(config.router)
 app.include_router(ai.router)
 app.include_router(stats.router)
 app.include_router(git.router)
+app.include_router(logs.router)
 
 
 @app.on_event("startup")
