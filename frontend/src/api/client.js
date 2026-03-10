@@ -45,6 +45,12 @@ export const configApi = {
   testApiConfig(id) {
     return client.post(`/config/api/${id}/test`)
   },
+  getAppConfig() {
+    return client.get('/config/app')
+  },
+  updateAppConfigSection(section, data) {
+    return client.put(`/config/app/${section}`, data)
+  },
 }
 
 // AI API

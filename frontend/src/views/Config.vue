@@ -2,45 +2,207 @@
   <div class="config">
     <h2>配置管理</h2>
 
-    <!-- API配置列表 -->
-    <el-card>
-      <template #header>
-        <div class="card-header">
-          <span>API配置</span>
-          <el-button type="primary" @click="showAddDialog = true">添加配置</el-button>
-        </div>
-      </template>
+    <el-tabs v-model="activeTab" v-loading="loading">
+      <!-- 数据库配置 -->
+      <el-tab-pane label="数据库" name="database">
+        <el-form :model="appConfig.database" label-width="120px" style="max-width: 500px">
+          <el-form-item label="主机">
+            <el-input v-model="appConfig.database.host" />
+          </el-form-item>
+          <el-form-item label="端口">
+            <el-input-number v-model="appConfig.database.port" :min="1" :max="65535" />
+          </el-form-item>
+          <el-form-item label="用户">
+            <el-input v-model="appConfig.database.user" />
+          </el-form-item>
+          <el-form-item label="密码">
+            <el-input v-model="appConfig.database.password" type="password" show-password />
+          </el-form-item>
+          <el-form-item label="数据库名">
+            <el-input v-model="appConfig.database.database" />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" @click="saveSection('database')">保存</el-button>
+          </el-form-item>
+        </el-form>
+      </el-tab-pane>
 
-      <el-table :data="apiConfigs" v-loading="loading">
-        <el-table-column prop="name" label="名称" width="150" />
-        <el-table-column prop="base_url" label="Base URL" min-width="200" />
-        <el-table-column prop="model" label="模型" width="150" />
-        <el-table-column label="状态" width="100">
-          <template #default="{ row }">
-            <el-tag v-if="row.is_active" type="success">活跃</el-tag>
-            <el-tag v-else type="info">未激活</el-tag>
+      <!-- SSH 隧道配置 -->
+      <el-tab-pane label="SSH 隧道" name="ssh">
+        <el-form :model="appConfig.ssh" label-width="120px" style="max-width: 500px">
+          <el-form-item label="启用">
+            <el-switch v-model="appConfig.ssh.enabled" />
+          </el-form-item>
+          <template v-if="appConfig.ssh.enabled">
+            <el-form-item label="SSH主机">
+              <el-input v-model="appConfig.ssh.host" />
+            </el-form-item>
+            <el-form-item label="SSH端口">
+              <el-input-number v-model="appConfig.ssh.port" :min="1" :max="65535" />
+            </el-form-item>
+            <el-form-item label="用户名">
+              <el-input v-model="appConfig.ssh.username" />
+            </el-form-item>
+            <el-form-item label="认证方式">
+              <el-radio-group v-model="appConfig.ssh.auth_type">
+                <el-radio value="key">密钥</el-radio>
+                <el-radio value="password">密码</el-radio>
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item v-if="appConfig.ssh.auth_type === 'key'" label="密钥路径">
+              <el-input v-model="appConfig.ssh.key_path" />
+            </el-form-item>
+            <el-form-item v-if="appConfig.ssh.auth_type === 'password'" label="SSH密码">
+              <el-input v-model="appConfig.ssh.password" type="password" show-password />
+            </el-form-item>
+            <el-form-item label="远程主机">
+              <el-input v-model="appConfig.ssh.remote_host" />
+            </el-form-item>
+            <el-form-item label="远程端口">
+              <el-input-number v-model="appConfig.ssh.remote_port" :min="1" :max="65535" />
+            </el-form-item>
           </template>
-        </el-table-column>
-        <el-table-column label="测试状态" width="120">
-          <template #default="{ row }">
-            <el-tag v-if="row.test_status === 'success'" type="success">成功</el-tag>
-            <el-tag v-else-if="row.test_status === 'failed'" type="danger">失败</el-tag>
-            <el-tag v-else type="info">未测试</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="250">
-          <template #default="{ row }">
-            <el-button size="small" @click="testConfig(row)">测试</el-button>
-            <el-button size="small" type="primary" :disabled="row.is_active" @click="activateConfig(row)">
-              激活
-            </el-button>
-            <el-button size="small" type="danger" @click="deleteConfig(row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
+          <el-form-item>
+            <el-button type="primary" @click="saveSection('ssh')">保存</el-button>
+          </el-form-item>
+        </el-form>
+      </el-tab-pane>
 
-    <!-- 添加配置对话框 -->
+      <!-- 追踪器配置 -->
+      <el-tab-pane label="追踪器" name="tracker">
+        <el-form :model="appConfig.tracker" label-width="160px" style="max-width: 600px">
+          <el-form-item label="Git检查间隔(秒)">
+            <el-input-number v-model="appConfig.tracker.git_check_interval" :min="5" />
+          </el-form-item>
+          <el-form-item label="文件批量大小">
+            <el-input-number v-model="appConfig.tracker.file_batch_size" :min="1" />
+          </el-form-item>
+          <el-form-item label="文件批量间隔(秒)">
+            <el-input-number v-model="appConfig.tracker.file_batch_interval" :min="10" />
+          </el-form-item>
+          <el-form-item label="监控路径">
+            <div style="width: 100%">
+              <el-tag
+                v-for="(path, index) in appConfig.tracker.watch_paths"
+                :key="index"
+                closable
+                style="margin: 0 4px 4px 0"
+                @close="appConfig.tracker.watch_paths.splice(index, 1)"
+              >{{ path }}</el-tag>
+              <el-input
+                v-if="showWatchPathInput"
+                ref="watchPathRef"
+                v-model="newWatchPath"
+                size="small"
+                style="width: 200px"
+                @keyup.enter="addWatchPath"
+                @blur="addWatchPath"
+              />
+              <el-button v-else size="small" @click="showWatchPathInput = true">+ 添加</el-button>
+            </div>
+          </el-form-item>
+          <el-form-item label="忽略模式">
+            <div style="width: 100%">
+              <el-tag
+                v-for="(pat, index) in appConfig.tracker.ignored_patterns"
+                :key="index"
+                closable
+                style="margin: 0 4px 4px 0"
+                @close="appConfig.tracker.ignored_patterns.splice(index, 1)"
+              >{{ pat }}</el-tag>
+              <el-input
+                v-if="showIgnoreInput"
+                ref="ignoreRef"
+                v-model="newIgnorePattern"
+                size="small"
+                style="width: 200px"
+                @keyup.enter="addIgnorePattern"
+                @blur="addIgnorePattern"
+              />
+              <el-button v-else size="small" @click="showIgnoreInput = true">+ 添加</el-button>
+            </div>
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" @click="saveSection('tracker')">保存</el-button>
+          </el-form-item>
+        </el-form>
+      </el-tab-pane>
+
+      <!-- AI 服务配置 -->
+      <el-tab-pane label="AI 服务" name="ai">
+        <el-form :model="appConfig.ai" label-width="140px" style="max-width: 500px">
+          <el-form-item label="默认配置名称">
+            <el-input v-model="appConfig.ai.default_config" />
+          </el-form-item>
+          <el-form-item label="重试次数">
+            <el-input-number v-model="appConfig.ai.retry_attempts" :min="0" :max="10" />
+          </el-form-item>
+          <el-form-item label="超时时间(秒)">
+            <el-input-number v-model="appConfig.ai.timeout" :min="5" />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" @click="saveSection('ai')">保存</el-button>
+          </el-form-item>
+        </el-form>
+      </el-tab-pane>
+
+      <!-- Web 服务配置 -->
+      <el-tab-pane label="Web 服务" name="web">
+        <el-form :model="appConfig.web" label-width="120px" style="max-width: 500px">
+          <el-form-item label="监听地址">
+            <el-input v-model="appConfig.web.host" />
+          </el-form-item>
+          <el-form-item label="端口">
+            <el-input-number v-model="appConfig.web.port" :min="1" :max="65535" />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" @click="saveSection('web')">保存</el-button>
+          </el-form-item>
+        </el-form>
+      </el-tab-pane>
+
+      <!-- API 配置（原有功能） -->
+      <el-tab-pane label="API 配置" name="apiConfig">
+        <el-card>
+          <template #header>
+            <div class="card-header">
+              <span>API配置</span>
+              <el-button type="primary" @click="showAddDialog = true">添加配置</el-button>
+            </div>
+          </template>
+
+          <el-table :data="apiConfigs" v-loading="apiLoading">
+            <el-table-column prop="name" label="名称" width="150" />
+            <el-table-column prop="base_url" label="Base URL" min-width="200" />
+            <el-table-column prop="model" label="模型" width="150" />
+            <el-table-column label="状态" width="100">
+              <template #default="{ row }">
+                <el-tag v-if="row.is_active" type="success">活跃</el-tag>
+                <el-tag v-else type="info">未激活</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="测试状态" width="120">
+              <template #default="{ row }">
+                <el-tag v-if="row.test_status === 'success'" type="success">成功</el-tag>
+                <el-tag v-else-if="row.test_status === 'failed'" type="danger">失败</el-tag>
+                <el-tag v-else type="info">未测试</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="250">
+              <template #default="{ row }">
+                <el-button size="small" @click="testConfig(row)">测试</el-button>
+                <el-button size="small" type="primary" :disabled="row.is_active" @click="activateConfig(row)">
+                  激活
+                </el-button>
+                <el-button size="small" type="danger" @click="deleteConfig(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+      </el-tab-pane>
+    </el-tabs>
+
+    <!-- 添加API配置对话框 -->
     <el-dialog v-model="showAddDialog" title="添加API配置" width="600px">
       <el-form :model="newConfig" label-width="100px">
         <el-form-item label="名称">
@@ -68,12 +230,70 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { configApi } from '../api/client'
 
-const apiConfigs = ref([])
+const activeTab = ref('database')
 const loading = ref(false)
+
+// 应用配置
+const appConfig = ref({
+  database: { host: '', port: 3307, user: '', password: '', database: '' },
+  ssh: { enabled: false, host: '', port: 22, username: '', auth_type: 'key', key_path: '', password: '', remote_host: '127.0.0.1', remote_port: 3306 },
+  tracker: { git_check_interval: 30, file_batch_size: 10, file_batch_interval: 300, watch_paths: ['.'], ignored_patterns: [] },
+  ai: { default_config: 'default', retry_attempts: 3, timeout: 30 },
+  web: { host: '127.0.0.1', port: 8000 },
+})
+
+// 动态标签输入
+const showWatchPathInput = ref(false)
+const newWatchPath = ref('')
+const watchPathRef = ref(null)
+const showIgnoreInput = ref(false)
+const newIgnorePattern = ref('')
+const ignoreRef = ref(null)
+
+const addWatchPath = () => {
+  if (newWatchPath.value.trim()) {
+    appConfig.value.tracker.watch_paths.push(newWatchPath.value.trim())
+  }
+  newWatchPath.value = ''
+  showWatchPathInput.value = false
+}
+
+const addIgnorePattern = () => {
+  if (newIgnorePattern.value.trim()) {
+    appConfig.value.tracker.ignored_patterns.push(newIgnorePattern.value.trim())
+  }
+  newIgnorePattern.value = ''
+  showIgnoreInput.value = false
+}
+
+const loadAppConfig = async () => {
+  loading.value = true
+  try {
+    const { data } = await configApi.getAppConfig()
+    appConfig.value = data
+  } catch (e) {
+    ElMessage.error('加载应用配置失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+const saveSection = async (section) => {
+  try {
+    await configApi.updateAppConfigSection(section, appConfig.value[section])
+    ElMessage.success('配置已保存')
+  } catch (e) {
+    ElMessage.error('保存配置失败')
+  }
+}
+
+// API 配置（原有功能）
+const apiConfigs = ref([])
+const apiLoading = ref(false)
 const showAddDialog = ref(false)
 const newConfig = ref({
   name: '',
@@ -84,14 +304,14 @@ const newConfig = ref({
 })
 
 const loadConfigs = async () => {
-  loading.value = true
+  apiLoading.value = true
   try {
     const { data } = await configApi.listApiConfigs()
     apiConfigs.value = data
   } catch (e) {
-    ElMessage.error('加载配置失败')
+    ElMessage.error('加载API配置失败')
   } finally {
-    loading.value = false
+    apiLoading.value = false
   }
 }
 
@@ -108,7 +328,7 @@ const addConfig = async () => {
 }
 
 const testConfig = async (config) => {
-  loading.value = true
+  apiLoading.value = true
   try {
     const { data } = await configApi.testApiConfig(config.id)
     if (data.success) {
@@ -120,7 +340,7 @@ const testConfig = async (config) => {
   } catch (e) {
     ElMessage.error('测试失败')
   } finally {
-    loading.value = false
+    apiLoading.value = false
   }
 }
 
@@ -146,6 +366,7 @@ const deleteConfig = async (config) => {
 }
 
 onMounted(() => {
+  loadAppConfig()
   loadConfigs()
 })
 </script>

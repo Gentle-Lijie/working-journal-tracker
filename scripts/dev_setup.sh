@@ -38,10 +38,10 @@ fi
 if [ -d "frontend" ]; then
     echo "安装前端依赖..."
     cd frontend
-    if command -v npm &> /dev/null; then
-        npm install
+    if command -v pnpm &> /dev/null; then
+        pnpm install
     else
-        echo "警告: npm未安装，跳过前端依赖安装"
+        echo "警告: pnpm未安装，跳过前端依赖安装"
     fi
     cd ..
 fi

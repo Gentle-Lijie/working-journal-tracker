@@ -6,10 +6,20 @@ from pydantic import BaseModel
 from backend.database import get_db_session
 from backend.models.api_config import ApiConfig
 from backend.services.ai_service import get_ai_service
+from shared.config import get_config, _deep_copy_dict
 from shared.utils import decrypt_value, encrypt_value
 
 router = APIRouter(prefix="/api/config", tags=["config"])
 ai_service = get_ai_service()
+
+# 密码脱敏占位符
+PASSWORD_MASK = "******"
+
+# 各 section 中需要脱敏的字段
+SENSITIVE_FIELDS = {
+    "database": ["password"],
+    "ssh": ["password"],
+}
 
 
 class ApiConfigCreate(BaseModel):
@@ -146,3 +156,48 @@ def test_api_config(config_id: int):
         config.test_message = result.get("message", "")
 
         return result
+
+
+@router.get("/app")
+def get_app_config():
+    """获取完整应用配置（密码字段脱敏）"""
+    config = get_config()
+    config.load()
+    cfg = config.to_dict()
+
+    # 脱敏敏感字段
+    for section, fields in SENSITIVE_FIELDS.items():
+        if section in cfg:
+            for field in fields:
+                if field in cfg[section] and cfg[section][field]:
+                    cfg[section][field] = PASSWORD_MASK
+
+    return cfg
+
+
+@router.put("/app/{section}")
+def update_app_config_section(section: str, data: dict):
+    """更新指定 section 的应用配置"""
+    valid_sections = ["database", "ssh", "tracker", "ai", "web"]
+    if section not in valid_sections:
+        raise HTTPException(status_code=400, detail=f"无效的配置段: {section}，可选: {', '.join(valid_sections)}")
+
+    config = get_config()
+    config.load()
+
+    current = config.to_dict()
+    if section not in current:
+        raise HTTPException(status_code=400, detail=f"配置段不存在: {section}")
+
+    # 合并数据，密码字段如果是占位符或空字符串则保留原值
+    sensitive = SENSITIVE_FIELDS.get(section, [])
+    for key, value in data.items():
+        if key in sensitive and value in (PASSWORD_MASK, ""):
+            continue
+        current[section][key] = value
+
+    config._config = current
+    config.save()
+    config.load()
+
+    return {"message": f"配置段 {section} 已更新"}

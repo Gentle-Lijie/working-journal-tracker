@@ -28,12 +28,8 @@ def init_database():
 
     # 如果启用SSH隧道，先建立隧道
     if ssh_config.get("enabled"):
-        # 这里需要从数据库加载SSH配置，暂时使用配置文件中的值
-        # 实际使用时需要先初始化数据库，然后从api_configs表读取
         tunnel_manager = get_tunnel_manager()
-        # 简化版：直接使用配置文件中的数据库配置
-        host = db_config["host"]
-        port = db_config["port"]
+        host, port = tunnel_manager.start(ssh_config)
     else:
         host = db_config["host"]
         port = db_config["port"]

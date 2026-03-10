@@ -67,6 +67,13 @@ def config_show():
     run_config_show()
 
 
+@config.command(name="setup")
+def config_setup():
+    """交互式配置向导"""
+    from cli.commands.config import run_config_setup
+    run_config_setup()
+
+
 @config.command(name="web")
 @click.option("--host", default=None, help="Web服务地址")
 @click.option("--port", default=None, type=int, help="Web服务端口")

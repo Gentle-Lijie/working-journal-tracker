@@ -28,7 +28,9 @@ class SSHTunnelManager:
                 - port: SSH端口
                 - username: SSH用户名
                 - auth_type: 认证类型 (password/key)
-                - encrypted_credential: 加密的密码或密钥路径
+                - password: SSH密码（password模式）
+                - key_path: SSH密钥路径（key模式）
+                - encrypted_credential: 加密的密码或密钥路径（兼容旧格式）
                 - remote_host: 远程MySQL主机
                 - remote_port: 远程MySQL端口
 
@@ -40,7 +42,6 @@ class SSHTunnelManager:
             return self.tunnel.local_bind_host, self.tunnel.local_bind_port
 
         auth_type = ssh_config.get("auth_type", "password")
-        credential = decrypt_value(ssh_config["encrypted_credential"])
 
         ssh_kwargs = {
             "ssh_address_or_host": (ssh_config["host"], ssh_config.get("port", 22)),
@@ -53,9 +54,17 @@ class SSHTunnelManager:
         }
 
         if auth_type == "password":
-            ssh_kwargs["ssh_password"] = credential
+            # 优先使用明文密码，兼容加密格式
+            if ssh_config.get("password"):
+                ssh_kwargs["ssh_password"] = ssh_config["password"]
+            elif ssh_config.get("encrypted_credential"):
+                ssh_kwargs["ssh_password"] = decrypt_value(ssh_config["encrypted_credential"])
         else:  # key
-            ssh_kwargs["ssh_pkey"] = credential
+            from pathlib import Path
+            if ssh_config.get("key_path"):
+                ssh_kwargs["ssh_pkey"] = str(Path(ssh_config["key_path"]).expanduser())
+            elif ssh_config.get("encrypted_credential"):
+                ssh_kwargs["ssh_pkey"] = decrypt_value(ssh_config["encrypted_credential"])
 
         try:
             self.tunnel = SSHTunnelForwarder(**ssh_kwargs)

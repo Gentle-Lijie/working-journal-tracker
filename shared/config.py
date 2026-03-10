@@ -27,7 +27,14 @@ DEFAULT_CONFIG = {
     },
     "ssh": {
         "enabled": False,
-        "config_name": "default",
+        "host": "",
+        "port": 22,
+        "username": "",
+        "auth_type": "key",
+        "key_path": "",
+        "password": "",
+        "remote_host": "127.0.0.1",
+        "remote_port": 3306,
     },
     "tracker": {
         "git_check_interval": DEFAULT_GIT_CHECK_INTERVAL,

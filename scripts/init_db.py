@@ -24,6 +24,34 @@ def main():
     print(f"  数据库: {config.database['database']}")
     print(f"  用户: {config.database['user']}")
 
+    # 如果启用SSH隧道，先建立隧道获取本地端口
+    ssh_config = config.ssh
+    if ssh_config.get("enabled"):
+        from backend.services.ssh_tunnel import get_tunnel_manager
+        tunnel_manager = get_tunnel_manager()
+        host, port = tunnel_manager.start(ssh_config)
+    else:
+        host = config.database["host"]
+        port = config.database["port"]
+
+    # 先创建数据库（如果不存在）
+    import pymysql
+    db_name = config.database["database"]
+    try:
+        conn = pymysql.connect(
+            host=host,
+            port=port,
+            user=config.database["user"],
+            password=config.database["password"],
+        )
+        with conn.cursor() as cursor:
+            cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+        conn.close()
+        print(f"✓ 数据库 '{db_name}' 已就绪")
+    except Exception as e:
+        print(f"✗ 创建数据库失败: {e}")
+        sys.exit(1)
+
     # 初始化数据库连接
     try:
         init_database()
