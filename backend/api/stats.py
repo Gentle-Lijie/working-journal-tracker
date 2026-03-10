@@ -29,7 +29,7 @@ def daily_stats(date: Optional[str] = Query(None), project_id: Optional[int] = Q
     end = datetime.combine(target_date, datetime.max.time())
 
     with get_db_session() as session:
-        # 工作时长（合并重叠时间段）
+        # 工作时长（按项目分别合并重叠时间段）
         ws_query = session.query(WorkSession).filter(
             WorkSession.start_time >= start, WorkSession.start_time <= end
         )
@@ -37,27 +37,35 @@ def daily_stats(date: Optional[str] = Query(None), project_id: Optional[int] = Q
             ws_query = ws_query.filter(WorkSession.project_id == project_id)
         sessions = ws_query.all()
 
-        # 收集所有时间段并合并重叠部分
-        intervals = []
+        # 按项目分组计算时长
+        project_intervals = {}
         for s in sessions:
+            pid = s.project_id or 0  # None 视为 0
             end_time = s.end_time or datetime.now()
-            intervals.append((s.start_time, end_time))
+            if pid not in project_intervals:
+                project_intervals[pid] = []
+            project_intervals[pid].append((s.start_time, end_time))
 
-        # 按开始时间排序
-        intervals.sort(key=lambda x: x[0])
+        # 对每个项目的时间段进行合并，然后求和
+        total_duration = 0
+        for pid, intervals in project_intervals.items():
+            # 按开始时间排序
+            intervals.sort(key=lambda x: x[0])
 
-        # 合并重叠区间
-        merged = []
-        for interval in intervals:
-            if not merged:
-                merged.append(list(interval))
-            else:
-                if interval[0] <= merged[-1][1]:  # 有重叠
-                    merged[-1][1] = max(merged[-1][1], interval[1])
-                else:
+            # 合并重叠区间
+            merged = []
+            for interval in intervals:
+                if not merged:
                     merged.append(list(interval))
+                else:
+                    if interval[0] <= merged[-1][1]:  # 有重叠
+                        merged[-1][1] = max(merged[-1][1], interval[1])
+                    else:
+                        merged.append(list(interval))
 
-        total_duration = sum((end - start).total_seconds() for start, end in merged)
+            # 累加该项目的工作时长
+            project_duration = sum((end - start).total_seconds() for start, end in merged)
+            total_duration += project_duration
 
         # 活动统计
         act_query = session.query(Activity).filter(
