@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Integer, String
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String
 
 from backend.database import Base
 from shared.constants import SESSION_STATUS_ACTIVE
@@ -12,6 +12,7 @@ class WorkSession(Base):
     __tablename__ = "work_sessions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True, index=True)
     start_time = Column(DateTime, nullable=False, default=datetime.now)
     end_time = Column(DateTime, nullable=True)
     status = Column(String(20), nullable=False, default=SESSION_STATUS_ACTIVE)

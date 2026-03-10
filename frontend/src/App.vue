@@ -12,9 +12,27 @@
         >
           <el-menu-item index="/">仪表盘</el-menu-item>
           <el-menu-item index="/journals">日志</el-menu-item>
+          <el-menu-item index="/projects">项目</el-menu-item>
           <el-menu-item index="/config">配置</el-menu-item>
           <el-menu-item index="/stats">统计</el-menu-item>
         </el-menu>
+        <div class="project-selector">
+          <el-select
+            v-model="currentProjectId"
+            placeholder="全部项目"
+            clearable
+            size="default"
+            @change="onProjectChange"
+            style="width: 180px"
+          >
+            <el-option
+              v-for="p in projectStore.projectList"
+              :key="p.id"
+              :label="p.name"
+              :value="p.id"
+            />
+          </el-select>
+        </div>
       </div>
     </el-header>
     <el-main>
@@ -24,11 +42,26 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { useProjectStore } from './stores/project'
 
 const route = useRoute()
 const activeMenu = computed(() => route.path)
+const projectStore = useProjectStore()
+
+const currentProjectId = computed({
+  get: () => projectStore.currentProjectId,
+  set: (val) => projectStore.setCurrentProject(val),
+})
+
+function onProjectChange(val) {
+  projectStore.setCurrentProject(val ?? null)
+}
+
+onMounted(() => {
+  projectStore.loadProjects()
+})
 </script>
 
 <style>
@@ -64,6 +97,12 @@ body {
 
 .nav-menu {
   border-bottom: none !important;
+  flex: 1;
+}
+
+.project-selector {
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .el-main {

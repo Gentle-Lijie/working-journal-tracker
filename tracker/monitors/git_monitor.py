@@ -18,9 +18,10 @@ logger = logging.getLogger(__name__)
 class GitMonitor:
     """Git提交监控器"""
 
-    def __init__(self, repo_path: str, session_id: int, check_interval: int = 30):
+    def __init__(self, repo_path: str, session_id: int, check_interval: int = 30, project_id: int | None = None):
         self.repo_path = Path(repo_path)
         self.session_id = session_id
+        self.project_id = project_id
         self.check_interval = check_interval
         self.last_commit_hash = None
         self.repo = None
@@ -116,6 +117,7 @@ class GitMonitor:
             with get_db_session() as session:
                 activity = Activity(
                     session_id=self.session_id,
+                    project_id=self.project_id,
                     activity_type=ACTIVITY_TYPE_GIT_COMMIT,
                     timestamp=datetime.fromtimestamp(commit.committed_date),
                     description=commit.message.strip(),

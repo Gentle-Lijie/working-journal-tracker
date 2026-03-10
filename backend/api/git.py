@@ -1,19 +1,31 @@
 """Git日志API - 实时读取Git log"""
 
 from pathlib import Path
+from typing import Optional
 
 from fastapi import APIRouter, Query
 from git import Repo
 from git.exc import InvalidGitRepositoryError
 
+from backend.database import get_db_session
+from backend.models.project import Project
+
 router = APIRouter(prefix="/api/git", tags=["git"])
 
 
 @router.get("/log")
-def get_git_log(limit: int = Query(20, le=100)):
+def get_git_log(limit: int = Query(20, le=100), project_id: Optional[int] = Query(None)):
     """实时读取Git提交记录"""
-    # 从项目根目录读取
-    repo_path = Path(__file__).parent.parent.parent
+    # 根据project_id查找项目路径，否则使用项目根目录
+    if project_id is not None:
+        with get_db_session() as session:
+            project = session.query(Project).get(project_id)
+            if not project:
+                return []
+            repo_path = Path(project.path)
+    else:
+        repo_path = Path(__file__).parent.parent.parent
+
     try:
         repo = Repo(repo_path)
     except InvalidGitRepositoryError:
@@ -21,7 +33,6 @@ def get_git_log(limit: int = Query(20, le=100)):
 
     commits = []
     for commit in repo.iter_commits(max_count=limit):
-        # 获取变更文件
         changed_files = []
         stats = {"insertions": 0, "deletions": 0, "files": 0}
         try:

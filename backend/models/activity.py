@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.types import JSON
 
 from backend.database import Base
@@ -13,6 +13,7 @@ class Activity(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     session_id = Column(Integer, ForeignKey("work_sessions.id"), nullable=False)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True, index=True)
     activity_type = Column(String(50), nullable=False)  # git_commit, file_create, file_modify, file_delete
     timestamp = Column(DateTime, nullable=False, default=datetime.now)
     description = Column(Text, nullable=True)

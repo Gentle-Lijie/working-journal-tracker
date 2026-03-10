@@ -8,6 +8,28 @@ const client = axios.create({
   },
 })
 
+// 项目API
+export const projectApi = {
+  list(params = {}) {
+    return client.get('/projects', { params })
+  },
+  create(data) {
+    return client.post('/projects', data)
+  },
+  get(id) {
+    return client.get(`/projects/${id}`)
+  },
+  update(id, data) {
+    return client.put(`/projects/${id}`, data)
+  },
+  delete(id) {
+    return client.delete(`/projects/${id}`)
+  },
+  trackerStatus() {
+    return client.get('/projects/tracker-status/all')
+  },
+}
+
 // 活动记录API
 export const activityApi = {
   list(params = {}) {
@@ -75,14 +97,21 @@ export const gitApi = {
 
 // 统计API
 export const statsApi = {
-  daily(date) {
-    return client.get('/stats/daily', { params: { date } })
+  daily(date, projectId) {
+    const params = {}
+    if (date) params.date = date
+    if (projectId != null) params.project_id = projectId
+    return client.get('/stats/daily', { params })
   },
-  tokens(days = 7) {
-    return client.get('/stats/tokens', { params: { days } })
+  tokens(days = 7, projectId) {
+    const params = { days }
+    if (projectId != null) params.project_id = projectId
+    return client.get('/stats/tokens', { params })
   },
-  workTypes(days = 30) {
-    return client.get('/stats/work-types', { params: { days } })
+  workTypes(days = 30, projectId) {
+    const params = { days }
+    if (projectId != null) params.project_id = projectId
+    return client.get('/stats/work-types', { params })
   },
 }
 

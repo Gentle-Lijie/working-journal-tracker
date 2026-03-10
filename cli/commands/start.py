@@ -9,22 +9,40 @@ from pathlib import Path
 from rich.console import Console
 
 from backend.database import get_db_session, init_database
+from backend.models.project import Project
 from backend.models.work_session import WorkSession
 from shared.constants import SESSION_STATUS_ACTIVE
-from shared.utils import get_app_dir
-from tracker.daemon import get_daemon_pid
+from shared.utils import get_app_dir, get_daemon_pid
 
 console = Console()
 
 
+def _get_or_create_project(path: str) -> int | None:
+    """根据路径查找或创建项目，返回project_id"""
+    with get_db_session() as session:
+        project = session.query(Project).filter(Project.path == path).first()
+        if project:
+            if not project.is_active:
+                project.is_active = True
+            console.print(f"[blue]项目: {project.name} (ID: {project.id})[/blue]")
+            return project.id
+
+        # 自动创建项目，使用目录名作为项目名
+        name = Path(path).name
+        # 避免名称冲突
+        existing = session.query(Project).filter(Project.name == name).first()
+        if existing:
+            name = f"{name}-{Path(path).parent.name}"
+
+        project = Project(name=name, path=path)
+        session.add(project)
+        session.flush()
+        console.print(f"[green]自动创建项目: {name} (ID: {project.id})[/green]")
+        return project.id
+
+
 def run_start(path: str):
     """启动工作追踪"""
-    # 检查是否已有运行的守护进程
-    pid = get_daemon_pid()
-    if pid:
-        console.print(f"[yellow]追踪器已在运行中 (PID: {pid})[/yellow]")
-        return
-
     repo_path = str(Path(path).resolve())
     console.print(f"[blue]项目路径: {repo_path}[/blue]")
 
@@ -36,12 +54,23 @@ def run_start(path: str):
         console.print("[dim]请检查配置文件: ~/.work-journal/config.yaml[/dim]")
         return
 
+    # 获取或创建项目
+    project_id = _get_or_create_project(repo_path)
+
+    # 检查该项目是否已有运行的守护进程
+    if project_id is not None:
+        pid = get_daemon_pid(project_id)
+        if pid:
+            console.print(f"[yellow]该项目的追踪器已在运行中 (PID: {pid})[/yellow]")
+            return
+
     # 创建新的工作会话
     try:
         with get_db_session() as session:
             work_session = WorkSession(
                 start_time=datetime.now(),
                 status=SESSION_STATUS_ACTIVE,
+                project_id=project_id,
             )
             session.add(work_session)
             session.flush()
@@ -54,7 +83,6 @@ def run_start(path: str):
 
     # 启动守护进程
     try:
-        daemon_script = Path(__file__).parent.parent.parent / "tracker" / "daemon.py"
         env = os.environ.copy()
         env["PYTHONPATH"] = str(Path(__file__).parent.parent.parent)
 
@@ -70,7 +98,7 @@ get_config().load()
 from backend.database import init_database
 init_database()
 from tracker.daemon import TrackerDaemon
-daemon = TrackerDaemon(session_id={session_id}, repo_path='{repo_path}')
+daemon = TrackerDaemon(session_id={session_id}, repo_path='{repo_path}', project_id={project_id})
 daemon.start()
 """,
             ],

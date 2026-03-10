@@ -34,6 +34,7 @@ class ActivityResponse(BaseModel):
 @router.get("")
 def list_activities(
     session_id: Optional[int] = Query(None),
+    project_id: Optional[int] = Query(None),
     from_time: Optional[str] = Query(None, alias="from"),
     to_time: Optional[str] = Query(None, alias="to"),
     activity_type: Optional[str] = Query(None),
@@ -46,6 +47,7 @@ def list_activities(
 
     activities = tracker.get_activities(
         session_id=session_id,
+        project_id=project_id,
         from_time=from_dt,
         to_time=to_dt,
         activity_type=activity_type,
@@ -57,6 +59,7 @@ def list_activities(
         {
             "id": a.id,
             "session_id": a.session_id,
+            "project_id": a.project_id,
             "activity_type": a.activity_type,
             "timestamp": a.timestamp.isoformat(),
             "description": a.description,

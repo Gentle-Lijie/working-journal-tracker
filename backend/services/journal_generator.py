@@ -23,6 +23,7 @@ class JournalGenerator:
         start_time: datetime,
         end_time: datetime,
         session_id: int | None = None,
+        project_id: int | None = None,
     ) -> JournalEntry | None:
         """生成指定时间范围的日志条目"""
 
@@ -34,6 +35,8 @@ class JournalGenerator:
             )
             if session_id:
                 query = query.filter(Activity.session_id == session_id)
+            if project_id is not None:
+                query = query.filter(Activity.project_id == project_id)
 
             activities = query.order_by(Activity.timestamp).all()
 
@@ -67,6 +70,7 @@ class JournalGenerator:
             # 创建日志条目
             entry = JournalEntry(
                 session_id=session_id,
+                project_id=project_id,
                 start_time=start_time,
                 end_time=end_time,
                 work_type=result["work_type"],

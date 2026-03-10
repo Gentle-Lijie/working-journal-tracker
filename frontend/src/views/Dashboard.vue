@@ -127,12 +127,14 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import MarkdownIt from 'markdown-it'
 import { statsApi, activityApi, journalApi, gitApi } from '../api/client'
+import { useProjectStore } from '../stores/project'
 
 const md = new MarkdownIt()
 const renderMarkdown = (text) => text ? md.render(text) : ''
+const projectStore = useProjectStore()
 
 const stats = ref({})
 const gitCommits = ref([])
@@ -173,7 +175,7 @@ const fileTypeColor = (type) => {
 
 const loadStats = async () => {
   try {
-    const { data } = await statsApi.daily()
+    const { data } = await statsApi.daily(undefined, projectStore.currentProjectId)
     stats.value = data
   } catch (e) {
     console.error('加载统计失败:', e)
@@ -182,7 +184,9 @@ const loadStats = async () => {
 
 const loadGitLog = async () => {
   try {
-    const { data } = await gitApi.log({ limit: 15 })
+    const params = { limit: 15 }
+    if (projectStore.currentProjectId != null) params.project_id = projectStore.currentProjectId
+    const { data } = await gitApi.log(params)
     gitCommits.value = data
   } catch (e) {
     console.error('加载Git日志失败:', e)
@@ -191,8 +195,9 @@ const loadGitLog = async () => {
 
 const loadFileActivities = async () => {
   try {
-    const { data } = await activityApi.list({ limit: 20 })
-    // 只保留文件类型的活动
+    const params = { limit: 20 }
+    if (projectStore.currentProjectId != null) params.project_id = projectStore.currentProjectId
+    const { data } = await activityApi.list(params)
     fileActivities.value = data.filter(a =>
       ['file_create', 'file_modify', 'file_delete'].includes(a.activity_type)
     )
@@ -203,19 +208,25 @@ const loadFileActivities = async () => {
 
 const loadJournals = async () => {
   try {
-    const { data } = await journalApi.list({ limit: 5 })
+    const params = { limit: 5 }
+    if (projectStore.currentProjectId != null) params.project_id = projectStore.currentProjectId
+    const { data } = await journalApi.list(params)
     journals.value = data
   } catch (e) {
     console.error('加载日志失败:', e)
   }
 }
 
-onMounted(() => {
+const loadAll = () => {
   loadStats()
   loadGitLog()
   loadFileActivities()
   loadJournals()
-})
+}
+
+watch(() => projectStore.currentProjectId, loadAll)
+
+onMounted(loadAll)
 </script>
 
 <style scoped>

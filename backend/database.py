@@ -87,6 +87,7 @@ def create_tables():
         activity,
         api_config,
         journal_entry,
+        project,
         ssh_config,
         token_usage,
         work_session,

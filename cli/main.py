@@ -23,10 +23,11 @@ def start(path):
 
 @cli.command()
 @click.option("--summary", "-s", is_flag=True, help="停止前生成摘要")
-def stop(summary):
+@click.option("--project", "-p", "project_name", default=None, help="指定停止的项目名称")
+def stop(summary, project_name):
     """停止追踪"""
     from cli.commands.stop import run_stop
-    run_stop(generate_summary=summary)
+    run_stop(generate_summary=summary, project_name=project_name)
 
 
 @cli.command()
@@ -81,6 +82,39 @@ def config_web(host, port):
     """启动Web配置面板"""
     from cli.commands.config import run_config_web
     run_config_web(host=host, port=port)
+
+
+# === 项目管理命令组 ===
+
+@cli.group()
+def project():
+    """项目管理"""
+    pass
+
+
+@project.command(name="add")
+@click.argument("name")
+@click.argument("path")
+@click.option("--desc", "-d", default=None, help="项目描述")
+def project_add(name, path, desc):
+    """添加项目"""
+    from cli.commands.project import run_project_add
+    run_project_add(name, path, description=desc)
+
+
+@project.command(name="list")
+def project_list():
+    """列出所有项目"""
+    from cli.commands.project import run_project_list
+    run_project_list()
+
+
+@project.command(name="remove")
+@click.argument("name")
+def project_remove(name):
+    """移除项目"""
+    from cli.commands.project import run_project_remove
+    run_project_remove(name)
 
 
 if __name__ == "__main__":

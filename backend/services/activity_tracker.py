@@ -15,6 +15,7 @@ class ActivityTracker:
     def get_activities(
         self,
         session_id: int | None = None,
+        project_id: int | None = None,
         from_time: datetime | None = None,
         to_time: datetime | None = None,
         activity_type: str | None = None,
@@ -27,6 +28,8 @@ class ActivityTracker:
 
             if session_id:
                 query = query.filter(Activity.session_id == session_id)
+            if project_id is not None:
+                query = query.filter(Activity.project_id == project_id)
             if from_time:
                 query = query.filter(Activity.timestamp >= from_time)
             if to_time:

@@ -30,8 +30,10 @@ class FileChangeHandler(FileSystemEventHandler):
         ignored_patterns: list[str],
         batch_size: int = 10,
         batch_interval: int = 300,
+        project_id: int | None = None,
     ):
         self.session_id = session_id
+        self.project_id = project_id
         self.ignored_patterns = ignored_patterns
         self.batch_size = batch_size
         self.batch_interval = batch_interval
@@ -84,6 +86,7 @@ class FileChangeHandler(FileSystemEventHandler):
                     }
                     activity = Activity(
                         session_id=self.session_id,
+                        project_id=self.project_id,
                         activity_type=event["activity_type"],
                         timestamp=event["timestamp"],
                         description=f"{type_desc.get(event['activity_type'], '变更')}文件: {Path(event['filepath']).name}",
@@ -112,6 +115,7 @@ class FileMonitor:
         ignored_patterns: list[str],
         batch_size: int = 10,
         batch_interval: int = 300,
+        project_id: int | None = None,
     ):
         self.watch_paths = [Path(p).resolve() for p in watch_paths]
         self.session_id = session_id
@@ -121,6 +125,7 @@ class FileMonitor:
             ignored_patterns=ignored_patterns,
             batch_size=batch_size,
             batch_interval=batch_interval,
+            project_id=project_id,
         )
         self.observer = Observer()
         self._flush_timer = None

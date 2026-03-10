@@ -18,6 +18,7 @@ class JournalGenerateRequest(BaseModel):
     start_time: str
     end_time: str
     session_id: int | None = None
+    project_id: int | None = None
 
 
 class JournalResponse(BaseModel):
@@ -39,6 +40,7 @@ def list_journals(
     from_date: Optional[str] = Query(None, alias="from"),
     to_date: Optional[str] = Query(None, alias="to"),
     work_type: Optional[str] = Query(None),
+    project_id: Optional[int] = Query(None),
     limit: int = Query(50, le=200),
     offset: int = Query(0),
 ):
@@ -54,6 +56,8 @@ def list_journals(
             query = query.filter(JournalEntry.end_time <= to_dt)
         if work_type:
             query = query.filter(JournalEntry.work_type == work_type)
+        if project_id is not None:
+            query = query.filter(JournalEntry.project_id == project_id)
 
         journals = query.order_by(JournalEntry.start_time.desc()).offset(offset).limit(limit).all()
 
@@ -61,6 +65,7 @@ def list_journals(
             {
                 "id": j.id,
                 "session_id": j.session_id,
+                "project_id": j.project_id,
                 "start_time": j.start_time.isoformat(),
                 "end_time": j.end_time.isoformat(),
                 "work_type": j.work_type,
@@ -82,6 +87,7 @@ def generate_journal(data: JournalGenerateRequest):
         start_time=start_time,
         end_time=end_time,
         session_id=data.session_id,
+        project_id=data.project_id,
     )
 
     if not entry:

@@ -1,5 +1,5 @@
 #!/bin/bash
-# 一键启动开发环境
+# 一键启动开发环境（支持多项目追踪）
 
 set -e
 
@@ -7,9 +7,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 cd "$PROJECT_DIR"
-
-# 追踪路径，默认当前项目目录，可通过参数指定
-TRACK_PATH="${1:-.}"
 
 echo "=== 启动开发环境 ==="
 
@@ -25,15 +22,30 @@ FRONTEND_PID=$!
 
 # 等待后端就绪后启动追踪器
 cd "$PROJECT_DIR"
-echo "启动追踪器（监控: $TRACK_PATH）..."
 sleep 3
-work-journal start --path "$TRACK_PATH" &
-TRACKER_PID=$!
+
+# 支持多个路径参数，每个路径启动独立追踪器
+if [ $# -eq 0 ]; then
+    # 无参数时追踪当前项目目录
+    echo "启动追踪器（监控: .）..."
+    work-journal start --path "." &
+else
+    for TRACK_PATH in "$@"; do
+        echo "启动追踪器（监控: $TRACK_PATH）..."
+        work-journal start --path "$TRACK_PATH" &
+    done
+fi
 
 echo ""
 echo "后端:   http://127.0.0.1:8000"
 echo "前端:   http://127.0.0.1:5173"
-echo "追踪器: 监控 $TRACK_PATH"
+if [ $# -eq 0 ]; then
+    echo "追踪器: 监控 ."
+else
+    for TRACK_PATH in "$@"; do
+        echo "追踪器: 监控 $TRACK_PATH"
+    done
+fi
 echo "按 Ctrl+C 停止所有服务"
 
 # Ctrl+C 时停止所有进程

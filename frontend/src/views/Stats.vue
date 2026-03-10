@@ -52,10 +52,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, onMounted, nextTick, watch } from 'vue'
 import * as echarts from 'echarts'
 import { statsApi } from '../api/client'
+import { useProjectStore } from '../stores/project'
 
+const projectStore = useProjectStore()
 const tokenDays = ref(7)
 const tokenStats = ref({})
 const workTypeStats = ref({})
@@ -75,7 +77,7 @@ const formatDuration = (seconds) => {
 
 const loadTokenStats = async () => {
   try {
-    const { data } = await statsApi.tokens(tokenDays.value)
+    const { data } = await statsApi.tokens(tokenDays.value, projectStore.currentProjectId)
     tokenStats.value = data
     renderTokenChart(data)
   } catch (e) {
@@ -85,7 +87,7 @@ const loadTokenStats = async () => {
 
 const loadWorkTypeStats = async () => {
   try {
-    const { data } = await statsApi.workTypes(30)
+    const { data } = await statsApi.workTypes(30, projectStore.currentProjectId)
     workTypeStats.value = data
     renderTypeChart(data)
   } catch (e) {
@@ -95,7 +97,7 @@ const loadWorkTypeStats = async () => {
 
 const loadDailyStats = async () => {
   try {
-    const { data } = await statsApi.daily()
+    const { data } = await statsApi.daily(undefined, projectStore.currentProjectId)
     dailyStats.value = data
   } catch (e) {
     console.error('加载每日统计失败:', e)
@@ -144,11 +146,17 @@ const renderTypeChart = (data) => {
   })
 }
 
-onMounted(async () => {
-  await nextTick()
+const loadAll = () => {
   loadTokenStats()
   loadWorkTypeStats()
   loadDailyStats()
+}
+
+watch(() => projectStore.currentProjectId, loadAll)
+
+onMounted(async () => {
+  await nextTick()
+  loadAll()
 })
 </script>
 

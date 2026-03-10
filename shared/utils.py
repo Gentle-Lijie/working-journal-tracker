@@ -65,3 +65,60 @@ def is_ignored(filepath: str, patterns: list[str]) -> bool:
         elif pattern in path.parts:
             return True
     return False
+
+
+# === 多项目 PID 管理 ===
+
+def save_daemon_pid(pid: int, project_id: int | None = None):
+    """保存守护进程PID文件"""
+    from shared.constants import PID_FILE
+    if project_id is not None:
+        pid_name = f"tracker-{project_id}.pid"
+    else:
+        pid_name = PID_FILE
+    pid_path = get_app_dir() / pid_name
+    pid_path.write_text(str(pid))
+
+
+def get_daemon_pid(project_id: int | None = None) -> int | None:
+    """获取守护进程PID"""
+    from shared.constants import PID_FILE
+    if project_id is not None:
+        pid_name = f"tracker-{project_id}.pid"
+    else:
+        pid_name = PID_FILE
+    pid_path = get_app_dir() / pid_name
+    if pid_path.exists():
+        try:
+            pid = int(pid_path.read_text().strip())
+            os.kill(pid, 0)
+            return pid
+        except (ValueError, ProcessLookupError, PermissionError):
+            pid_path.unlink(missing_ok=True)
+    return None
+
+
+def remove_daemon_pid(project_id: int | None = None):
+    """删除守护进程PID文件"""
+    from shared.constants import PID_FILE
+    if project_id is not None:
+        pid_name = f"tracker-{project_id}.pid"
+    else:
+        pid_name = PID_FILE
+    pid_path = get_app_dir() / pid_name
+    pid_path.unlink(missing_ok=True)
+
+
+def get_all_daemon_pids() -> dict[int, int]:
+    """获取所有运行中的守护进程 {project_id: pid}"""
+    app_dir = get_app_dir()
+    result = {}
+    for pid_file in app_dir.glob("tracker-*.pid"):
+        try:
+            project_id = int(pid_file.stem.split("-", 1)[1])
+            pid = int(pid_file.read_text().strip())
+            os.kill(pid, 0)
+            result[project_id] = pid
+        except (ValueError, ProcessLookupError, PermissionError, IndexError):
+            pid_file.unlink(missing_ok=True)
+    return result

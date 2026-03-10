@@ -102,14 +102,16 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import MarkdownIt from 'markdown-it'
 import * as XLSX from 'xlsx'
 import { journalApi } from '../api/client'
+import { useProjectStore } from '../stores/project'
 
 const md = new MarkdownIt()
 const renderMarkdown = (text) => text ? md.render(text) : ''
+const projectStore = useProjectStore()
 
 const dateRange = ref([])
 const workType = ref('')
@@ -163,6 +165,7 @@ const handleGenerate = async () => {
       start_time: generateRange.value[0],
       end_time: generateRange.value[1],
       session_id: generateSessionId.value || undefined,
+      project_id: projectStore.currentProjectId || undefined,
     })
     if (data.success) {
       ElMessage.success('日志生成成功')
@@ -194,6 +197,9 @@ const loadJournals = async () => {
     if (workType.value) {
       params.work_type = workType.value
     }
+    if (projectStore.currentProjectId != null) {
+      params.project_id = projectStore.currentProjectId
+    }
     const { data } = await journalApi.list(params)
     journals.value = data
   } catch (e) {
@@ -202,6 +208,8 @@ const loadJournals = async () => {
     loading.value = false
   }
 }
+
+watch(() => projectStore.currentProjectId, loadJournals)
 
 onMounted(() => {
   loadJournals()
