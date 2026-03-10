@@ -128,7 +128,7 @@ pip install -e ".[dev]"
 uvicorn backend.main:app --reload
 
 # 运行前端
-cd frontend && npm run dev
+cd frontend && pnpm dev
 ```
 
 ## 许可证

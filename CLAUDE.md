@@ -90,7 +90,7 @@ python scripts/init_db.py
 uvicorn backend.main:app --reload
 
 # 启动前端
-cd frontend && npm run dev
+cd frontend && pnpm dev
 ```
 
 ### 使用
