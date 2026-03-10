@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.api import activities, ai, config, git, journals, logs, projects, stats
+from backend.api import activities, ai, config, filesystem, git, journals, logs, projects, stats
 from backend.database import init_database
 from shared.logging_config import setup_logging, get_logger
 
@@ -36,6 +36,7 @@ app.include_router(ai.router)
 app.include_router(stats.router)
 app.include_router(git.router)
 app.include_router(logs.router)
+app.include_router(filesystem.router)
 
 
 @app.on_event("startup")

@@ -12,6 +12,7 @@ from backend.database import get_db_session, init_database
 from backend.models.project import Project
 from backend.models.work_session import WorkSession
 from shared.constants import SESSION_STATUS_ACTIVE
+from shared.path_map import get_path_map
 from shared.platform_compat import detach_process_args
 from shared.utils import get_app_dir, get_daemon_pid
 
@@ -20,24 +21,32 @@ console = Console()
 
 def _get_or_create_project(path: str) -> int | None:
     """根据路径查找或创建项目，返回project_id"""
+    path_map = get_path_map()
+    repo_path = str(Path(path).resolve())
+
     with get_db_session() as session:
-        project = session.query(Project).filter(Project.path == path).first()
-        if project:
-            if not project.is_active:
-                project.is_active = True
-            console.print(f"[blue]项目: {project.name} (ID: {project.id})[/blue]")
-            return project.id
+        # 通过本地路径映射反查项目名
+        project_name = path_map.get_name_by_path(repo_path)
+        if project_name:
+            project = session.query(Project).filter(Project.name == project_name).first()
+            if project:
+                if not project.is_active:
+                    project.is_active = True
+                console.print(f"[blue]项目: {project.name} (ID: {project.id})[/blue]")
+                return project.id
 
         # 自动创建项目，使用目录名作为项目名
-        name = Path(path).name
+        name = Path(repo_path).name
         # 避免名称冲突
         existing = session.query(Project).filter(Project.name == name).first()
         if existing:
-            name = f"{name}-{Path(path).parent.name}"
+            name = f"{name}-{Path(repo_path).parent.name}"
 
-        project = Project(name=name, path=path)
+        project = Project(name=name)
         session.add(project)
         session.flush()
+        # 路径存本地
+        path_map.set_path(name, repo_path)
         console.print(f"[green]自动创建项目: {name} (ID: {project.id})[/green]")
         return project.id
 

@@ -24,7 +24,6 @@ def migrate():
             CREATE TABLE IF NOT EXISTS projects (
                 id INTEGER PRIMARY KEY AUTO_INCREMENT,
                 name VARCHAR(100) NOT NULL UNIQUE,
-                path VARCHAR(500) NOT NULL UNIQUE,
                 description TEXT,
                 is_active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,

@@ -26,7 +26,12 @@ def get_git_log(limit: int = Query(20, le=100), project_id: Optional[int] = Quer
             if not project:
                 logger.warning(f"项目不存在: project_id={project_id}")
                 return []
-            repo_path = Path(project.path)
+            from shared.path_map import get_path_map
+            local_path = get_path_map().get_path(project.name)
+            if not local_path:
+                logger.warning(f"项目本机路径未配置: name={project.name}")
+                return []
+            repo_path = Path(local_path)
     else:
         repo_path = Path(__file__).parent.parent.parent
 

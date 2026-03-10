@@ -6,6 +6,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from shared.path_map import get_path_map
 from shared.utils import format_datetime, format_duration, get_all_daemon_pids, get_daemon_pid
 
 console = Console()
@@ -38,12 +39,13 @@ def run_status():
             from backend.models.project import Project
 
             init_database()
+            path_map = get_path_map()
             with get_db_session() as session:
                 for project_id, pid in all_pids.items():
                     project = session.query(Project).get(project_id)
                     name = project.name if project else "未知"
-                    path = project.path if project else "未知"
-                    pid_table.add_row(str(project_id), str(pid), name, path)
+                    path = path_map.get_path(name) if project else "未知"
+                    pid_table.add_row(str(project_id), str(pid), name, path or "（本机未配置）")
         except Exception:
             for project_id, pid in all_pids.items():
                 pid_table.add_row(str(project_id), str(pid), "-", "-")

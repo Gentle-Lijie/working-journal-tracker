@@ -24,7 +24,12 @@
             <span style="font-weight: 600">{{ row.name }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="path" label="路径" min-width="240" show-overflow-tooltip />
+        <el-table-column label="本机路径" min-width="240" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span v-if="row.path">{{ row.path }}</span>
+            <el-link v-else type="primary" :underline="false" @click="openPathPicker(row)">配置路径</el-link>
+          </template>
+        </el-table-column>
         <el-table-column prop="description" label="描述" min-width="160" show-overflow-tooltip>
           <template #default="{ row }">
             {{ row.description || '-' }}
@@ -48,9 +53,10 @@
             {{ formatTime(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="250" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" text size="small" @click="openEditDialog(row)">编辑</el-button>
+            <el-button text size="small" @click="openPathPicker(row)">路径</el-button>
             <el-button
               v-if="row.is_active"
               type="warning" text size="small"
@@ -73,8 +79,11 @@
         <el-form-item label="名称" prop="name">
           <el-input v-model="addForm.name" placeholder="项目名称（唯一）" />
         </el-form-item>
-        <el-form-item label="路径" prop="path">
-          <el-input v-model="addForm.path" placeholder="项目绝对路径" />
+        <el-form-item label="路径">
+          <div style="display: flex; gap: 8px; width: 100%;">
+            <el-input v-model="addForm.path" placeholder="本机项目路径（可选）" readonly style="flex: 1" />
+            <el-button @click="addDirPickerVisible = true">选择</el-button>
+          </div>
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="addForm.description" type="textarea" :rows="2" placeholder="可选" />
@@ -91,9 +100,6 @@
       <el-form :model="editForm" label-width="80px" :rules="formRules" ref="editFormRef">
         <el-form-item label="名称" prop="name">
           <el-input v-model="editForm.name" />
-        </el-form-item>
-        <el-form-item label="路径" prop="path">
-          <el-input v-model="editForm.path" />
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="editForm.description" type="textarea" :rows="2" />
@@ -135,6 +141,12 @@
         </el-col>
       </el-row>
     </el-card>
+
+    <!-- 目录选择器：添加项目用 -->
+    <DirPicker v-model:visible="addDirPickerVisible" :initial-path="addForm.path" @select="addForm.path = $event" />
+
+    <!-- 目录选择器：配置路径用 -->
+    <DirPicker v-model:visible="pathPickerVisible" :initial-path="pathPickerInitial" @select="handlePathSelect" />
   </div>
 </template>
 
@@ -143,6 +155,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { projectApi } from '../api/client'
 import { useProjectStore } from '../stores/project'
+import DirPicker from '../components/DirPicker.vue'
 
 const projectStore = useProjectStore()
 const loading = ref(false)
@@ -154,13 +167,16 @@ const showAddDialog = ref(false)
 const showEditDialog = ref(false)
 const addFormRef = ref(null)
 const editFormRef = ref(null)
+const addDirPickerVisible = ref(false)
+const pathPickerVisible = ref(false)
+const pathPickerInitial = ref('')
+const pathPickerProjectId = ref(null)
 
 const addForm = reactive({ name: '', path: '', description: '' })
-const editForm = reactive({ id: null, name: '', path: '', description: '' })
+const editForm = reactive({ id: null, name: '', description: '' })
 
 const formRules = {
   name: [{ required: true, message: '请输入项目名称', trigger: 'blur' }],
-  path: [{ required: true, message: '请输入项目路径', trigger: 'blur' }],
 }
 
 const formatTime = (isoStr) => {
@@ -219,7 +235,6 @@ const handleAdd = async () => {
 const openEditDialog = (row) => {
   editForm.id = row.id
   editForm.name = row.name
-  editForm.path = row.path
   editForm.description = row.description || ''
   showEditDialog.value = true
 }
@@ -231,7 +246,6 @@ const handleEdit = async () => {
   try {
     await projectApi.update(editForm.id, {
       name: editForm.name,
-      path: editForm.path,
       description: editForm.description || undefined,
     })
     ElMessage.success('项目已更新')
@@ -266,6 +280,23 @@ const handleDelete = async (row) => {
     loadProjects()
   } catch (e) {
     if (e !== 'cancel') ElMessage.error('删除失败')
+  }
+}
+
+const openPathPicker = (row) => {
+  pathPickerProjectId.value = row.id
+  pathPickerInitial.value = row.path || ''
+  pathPickerVisible.value = true
+}
+
+const handlePathSelect = async (path) => {
+  if (!pathPickerProjectId.value) return
+  try {
+    await projectApi.setPath(pathPickerProjectId.value, path)
+    ElMessage.success('路径已更新')
+    loadProjects()
+  } catch (e) {
+    ElMessage.error('路径更新失败')
   }
 }
 

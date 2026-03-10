@@ -5,7 +5,8 @@ import os
 import signal
 import sys
 import threading
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from shared.config import get_config
@@ -14,6 +15,13 @@ from shared.platform_compat import IS_WINDOWS
 from shared.utils import get_app_dir, remove_daemon_pid, save_daemon_pid
 
 logger = logging.getLogger(__name__)
+
+
+def _seconds_until_next_hour() -> float:
+    """计算距离下一个整点的秒数"""
+    now = datetime.now()
+    next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+    return (next_hour - now).total_seconds()
 
 
 class TrackerDaemon:
@@ -82,6 +90,10 @@ class TrackerDaemon:
         )
         self.file_monitor.start()
 
+        # 启动整点日志自动生成
+        journal_thread = threading.Thread(target=self._journal_scheduler, daemon=True)
+        journal_thread.start()
+
         # 保持主线程运行
         try:
             while self._running:
@@ -93,6 +105,64 @@ class TrackerDaemon:
                     git_thread.start()
         except (KeyboardInterrupt, SystemExit):
             self.stop()
+
+    def _journal_scheduler(self):
+        """整点自动生成日志的调度线程"""
+        logger.info("日志自动生成调度器已启动")
+        while self._running:
+            wait = _seconds_until_next_hour()
+            logger.info(f"下次日志生成将在 {wait:.0f} 秒后（下一个整点）")
+            # 分段 sleep，以便及时响应停止信号
+            deadline = time.monotonic() + wait
+            while self._running and time.monotonic() < deadline:
+                time.sleep(min(5, deadline - time.monotonic()))
+            if not self._running:
+                break
+            try:
+                self._generate_journal()
+            except Exception as e:
+                logger.error(f"自动生成日志失败: {e}")
+
+    def _generate_journal(self):
+        """生成日志：从上一条日志的终点到当前时间"""
+        from backend.database import get_db_session
+        from backend.models.journal_entry import JournalEntry
+        from backend.services.journal_generator import JournalGenerator
+
+        now = datetime.now()
+
+        # 查找该项目最近一条日志的 end_time 作为起点
+        with get_db_session() as session:
+            last_entry = (
+                session.query(JournalEntry)
+                .filter(JournalEntry.project_id == self.project_id)
+                .order_by(JournalEntry.end_time.desc())
+                .first()
+            )
+            if last_entry:
+                start_time = last_entry.end_time
+            else:
+                # 没有历史日志，从当前会话开始时间算起
+                from backend.models.work_session import WorkSession
+                ws = session.query(WorkSession).get(self.session_id)
+                start_time = ws.start_time if ws else now - timedelta(hours=1)
+
+        if start_time >= now:
+            logger.info("起始时间不早于当前时间，跳过日志生成")
+            return
+
+        logger.info(f"自动生成日志: {start_time} ~ {now}, project_id={self.project_id}")
+        generator = JournalGenerator()
+        entry = generator.generate(
+            start_time=start_time,
+            end_time=now,
+            session_id=self.session_id,
+            project_id=self.project_id,
+        )
+        if entry:
+            logger.info(f"自动日志已生成: #{entry.id}")
+        else:
+            logger.info("该时段无活动记录，跳过")
 
     def stop(self):
         """停止守护进程"""

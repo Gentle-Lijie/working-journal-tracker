@@ -55,6 +55,9 @@ export const projectApi = {
   delete(id) {
     return client.delete(`/projects/${id}`)
   },
+  setPath(id, path) {
+    return client.put(`/projects/${id}/path`, { path })
+  },
   trackerStatus() {
     return client.get('/projects/tracker-status/all')
   },
@@ -132,6 +135,13 @@ export const logApi = {
   },
   tail(lines = 50) {
     return client.get('/logs/tail', { params: { lines } })
+  },
+}
+
+// 文件系统API
+export const filesystemApi = {
+  browse(path) {
+    return client.get('/filesystem/browse', { params: { path } })
   },
 }
 
