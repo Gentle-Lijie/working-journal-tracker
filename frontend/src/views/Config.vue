@@ -188,9 +188,10 @@
                 <el-tag v-else type="info">未测试</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="250">
+            <el-table-column label="操作" width="280">
               <template #default="{ row }">
                 <el-button size="small" @click="testConfig(row)">测试</el-button>
+                <el-button size="small" type="primary" plain @click="openEditDialog(row)">编辑</el-button>
                 <el-button size="small" type="primary" :disabled="row.is_active" @click="activateConfig(row)">
                   激活
                 </el-button>
@@ -203,27 +204,27 @@
     </el-tabs>
 
     <!-- 添加API配置对话框 -->
-    <el-dialog v-model="showAddDialog" title="添加API配置" width="600px">
-      <el-form :model="newConfig" label-width="100px">
+    <el-dialog v-model="showAddDialog" :title="editingConfig ? '编辑API配置' : '添加API配置'" width="600px">
+      <el-form :model="editingConfig || newConfig" label-width="100px">
         <el-form-item label="名称">
-          <el-input v-model="newConfig.name" placeholder="例如: default" />
+          <el-input v-model="currentForm.name" placeholder="例如: default" />
         </el-form-item>
         <el-form-item label="API Key">
-          <el-input v-model="newConfig.api_key" type="password" show-password />
+          <el-input v-model="currentForm.api_key" type="password" show-password placeholder="不修改请留空" />
         </el-form-item>
         <el-form-item label="Base URL">
-          <el-input v-model="newConfig.base_url" placeholder="https://api.openai.com" />
+          <el-input v-model="currentForm.base_url" placeholder="https://api.openai.com" />
         </el-form-item>
         <el-form-item label="模型">
-          <el-input v-model="newConfig.model" placeholder="gpt-4" />
+          <el-input v-model="currentForm.model" placeholder="gpt-4" />
         </el-form-item>
         <el-form-item label="Endpoint">
-          <el-input v-model="newConfig.endpoint" placeholder="/v1/chat/completions" />
+          <el-input v-model="currentForm.endpoint" placeholder="/v1/chat/completions" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showAddDialog = false">取消</el-button>
-        <el-button type="primary" @click="addConfig">确定</el-button>
+        <el-button @click="closeDialog">取消</el-button>
+        <el-button type="primary" @click="saveConfig">确定</el-button>
       </template>
     </el-dialog>
   </div>
@@ -295,7 +296,17 @@ const saveSection = async (section) => {
 const apiConfigs = ref([])
 const apiLoading = ref(false)
 const showAddDialog = ref(false)
+const editingConfig = ref(null)
 const newConfig = ref({
+  name: '',
+  api_key: '',
+  base_url: '',
+  model: '',
+  endpoint: '/v1/chat/completions',
+})
+
+// 当前表单数据（用于添加或编辑）
+const currentForm = ref({
   name: '',
   api_key: '',
   base_url: '',
@@ -319,12 +330,58 @@ const addConfig = async () => {
   try {
     await configApi.createApiConfig(newConfig.value)
     ElMessage.success('配置已添加')
-    showAddDialog.value = false
-    newConfig.value = { name: '', api_key: '', base_url: '', model: '', endpoint: '/v1/chat/completions' }
+    closeDialog()
     loadConfigs()
   } catch (e) {
-    ElMessage.error('添加配置失败')
+    ElMessage.error(e.response?.data?.detail || '添加配置失败')
   }
+}
+
+const openEditDialog = (config) => {
+  editingConfig.value = config
+  currentForm.value = {
+    name: config.name,
+    api_key: '', // 编辑时不显示原密钥
+    base_url: config.base_url,
+    model: config.model,
+    endpoint: config.endpoint || '/v1/chat/completions',
+  }
+  showAddDialog.value = true
+}
+
+const saveConfig = async () => {
+  try {
+    if (editingConfig.value) {
+      // 编辑模式
+      const updateData = {
+        name: currentForm.value.name,
+        base_url: currentForm.value.base_url,
+        model: currentForm.value.model,
+        endpoint: currentForm.value.endpoint,
+      }
+      // 只有填写了 API Key 才更新
+      if (currentForm.value.api_key) {
+        updateData.api_key = currentForm.value.api_key
+      }
+      await configApi.updateApiConfig(editingConfig.value.id, updateData)
+      ElMessage.success('配置已更新')
+    } else {
+      // 添加模式
+      await configApi.createApiConfig(currentForm.value)
+      ElMessage.success('配置已添加')
+    }
+    closeDialog()
+    loadConfigs()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || '保存配置失败')
+  }
+}
+
+const closeDialog = () => {
+  showAddDialog.value = false
+  editingConfig.value = null
+  currentForm.value = { name: '', api_key: '', base_url: '', model: '', endpoint: '/v1/chat/completions' }
+  newConfig.value = { name: '', api_key: '', base_url: '', model: '', endpoint: '/v1/chat/completions' }
 }
 
 const testConfig = async (config) => {
