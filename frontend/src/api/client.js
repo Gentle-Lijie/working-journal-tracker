@@ -66,6 +66,13 @@ export const aiApi = {
   },
 }
 
+// Git API
+export const gitApi = {
+  log(params = {}) {
+    return client.get('/git/log', { params })
+  },
+}
+
 // 统计API
 export const statsApi = {
   daily(date) {

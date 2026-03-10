@@ -6,6 +6,7 @@
         <el-menu
           :default-active="activeMenu"
           mode="horizontal"
+          :ellipsis="false"
           router
           class="nav-menu"
         >

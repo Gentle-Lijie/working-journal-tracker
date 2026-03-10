@@ -5,7 +5,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.api import activities, ai, config, journals, stats
+from backend.api import activities, ai, config, git, journals, stats
 from backend.database import init_database
 
 # 配置日志
@@ -38,6 +38,7 @@ app.include_router(journals.router)
 app.include_router(config.router)
 app.include_router(ai.router)
 app.include_router(stats.router)
+app.include_router(git.router)
 
 
 @app.on_event("startup")

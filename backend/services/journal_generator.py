@@ -76,6 +76,10 @@ class JournalGenerator:
             )
             db_session.add(entry)
             db_session.flush()
+            # 确保属性加载后脱离session
+            _ = entry.id, entry.session_id, entry.start_time, entry.end_time
+            _ = entry.work_type, entry.summary, entry.ai_model, entry.tokens_used
+            db_session.expunge(entry)
 
             logger.info(f"日志条目已生成: #{entry.id}")
             return entry

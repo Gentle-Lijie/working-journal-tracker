@@ -37,9 +37,10 @@ class ActivityTracker:
             activities = (
                 query.order_by(Activity.timestamp.desc()).offset(offset).limit(limit).all()
             )
-            # 确保在session关闭前将数据加载到内存
+            # 确保在session关闭前将所有属性加载到内存
             for a in activities:
-                _ = a.metadata_json
+                _ = a.id, a.session_id, a.activity_type, a.timestamp, a.description, a.metadata_json
+            db_session.expunge_all()
             return activities
 
     def add_activity(
@@ -60,6 +61,8 @@ class ActivityTracker:
             )
             db_session.add(activity)
             db_session.flush()
+            _ = activity.id
+            db_session.expunge(activity)
             return activity
 
     def count_activities(
