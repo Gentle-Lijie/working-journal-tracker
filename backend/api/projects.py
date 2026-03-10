@@ -195,10 +195,22 @@ def start_tracker(project_id: int):
 
         repo_path = str(Path(repo_path).resolve())
 
-        # 检查是否已在运行
+        # 检查是否已在运行（PID 文件）
         pid = get_daemon_pid(project_id)
         if pid:
             raise HTTPException(status_code=400, detail=f"追踪器已在运行中 (PID: {pid})")
+
+        # 检查是否有活跃会话（防止僵尸会话）
+        from shared.constants import SESSION_STATUS_ACTIVE
+        active_session = session.query(WorkSession).filter(
+            WorkSession.project_id == project_id,
+            WorkSession.status == SESSION_STATUS_ACTIVE
+        ).first()
+        if active_session:
+            # 关闭旧会话
+            active_session.end_time = datetime.now()
+            active_session.status = "closed"
+            logger.info(f"关闭僵尸会话: session_id={active_session.id}")
 
         # 创建工作会话
         work_session = WorkSession(
