@@ -1,6 +1,8 @@
 """SSH隧道管理服务"""
 
 import logging
+import threading
+import time
 from typing import Optional
 
 from sshtunnel import SSHTunnelForwarder
@@ -12,11 +14,17 @@ logger = logging.getLogger(__name__)
 
 
 class SSHTunnelManager:
-    """SSH隧道管理器"""
+    """SSH隧道管理器（支持自动重连）"""
 
     def __init__(self):
         self.tunnel: Optional[SSHTunnelForwarder] = None
         self._config = get_config()
+        self._ssh_config = None
+        self._lock = threading.Lock()
+        self._reconnect_thread: Optional[threading.Thread] = None
+        self._should_stop = False
+        self._max_retries = 5
+        self._retry_delay = 2
 
     def start(self, ssh_config: dict) -> tuple[str, int]:
         """
@@ -37,52 +45,95 @@ class SSHTunnelManager:
         Returns:
             (local_host, local_port) 本地绑定地址和端口
         """
+        self._ssh_config = ssh_config
+
+        # 检查是否已有活跃隧道
         if self.tunnel and self.tunnel.is_active:
             logger.info("SSH隧道已经在运行")
             return self.tunnel.local_bind_host, self.tunnel.local_bind_port
 
-        auth_type = ssh_config.get("auth_type", "password")
+        return self._start_tunnel()
+
+    def _start_tunnel(self, retry_count: int = 0) -> tuple[str, int]:
+        """内部启动隧道方法（支持重试）"""
+        auth_type = self._ssh_config.get("auth_type", "password")
 
         ssh_kwargs = {
-            "ssh_address_or_host": (ssh_config["host"], ssh_config.get("port", 22)),
-            "ssh_username": ssh_config["username"],
+            "ssh_address_or_host": (self._ssh_config["host"], self._ssh_config.get("port", 22)),
+            "ssh_username": self._ssh_config["username"],
             "remote_bind_address": (
-                ssh_config.get("remote_host", "127.0.0.1"),
-                ssh_config.get("remote_port", 3306),
+                self._ssh_config.get("remote_host", "127.0.0.1"),
+                self._ssh_config.get("remote_port", 3306),
             ),
             "local_bind_address": ("127.0.0.1", 0),  # 自动分配端口
         }
 
         if auth_type == "password":
-            # 优先使用明文密码，兼容加密格式
-            if ssh_config.get("password"):
-                ssh_kwargs["ssh_password"] = ssh_config["password"]
-            elif ssh_config.get("encrypted_credential"):
-                ssh_kwargs["ssh_password"] = decrypt_value(ssh_config["encrypted_credential"])
+            if self._ssh_config.get("password"):
+                ssh_kwargs["ssh_password"] = self._ssh_config["password"]
+            elif self._ssh_config.get("encrypted_credential"):
+                ssh_kwargs["ssh_password"] = decrypt_value(self._ssh_config["encrypted_credential"])
         else:  # key
             from pathlib import Path
-            if ssh_config.get("key_path"):
-                ssh_kwargs["ssh_pkey"] = str(Path(ssh_config["key_path"]).expanduser())
-            elif ssh_config.get("encrypted_credential"):
-                ssh_kwargs["ssh_pkey"] = decrypt_value(ssh_config["encrypted_credential"])
+            if self._ssh_config.get("key_path"):
+                ssh_kwargs["ssh_pkey"] = str(Path(self._ssh_config["key_path"]).expanduser())
+            elif self._ssh_config.get("encrypted_credential"):
+                ssh_kwargs["ssh_pkey"] = decrypt_value(self._ssh_config["encrypted_credential"])
 
         try:
+            # 清理旧隧道
+            if self.tunnel:
+                try:
+                    self.tunnel.stop()
+                except Exception:
+                    pass
+                self.tunnel = None
+
             self.tunnel = SSHTunnelForwarder(**ssh_kwargs)
             self.tunnel.start()
             logger.info(
                 f"SSH隧道已启动: {self.tunnel.local_bind_host}:{self.tunnel.local_bind_port}"
             )
             return self.tunnel.local_bind_host, self.tunnel.local_bind_port
+
         except Exception as e:
             logger.error(f"启动SSH隧道失败: {e}")
+            if retry_count < self._max_retries:
+                delay = self._retry_delay * (2 ** retry_count)  # 指数退避
+                logger.info(f"将在 {delay} 秒后重试 ({retry_count + 1}/{self._max_retries})...")
+                time.sleep(delay)
+                return self._start_tunnel(retry_count + 1)
             raise
+
+    def ensure_connection(self) -> Optional[tuple[str, int]]:
+        """确保隧道连接正常，断开时自动重连"""
+        with self._lock:
+            if self.tunnel and self.tunnel.is_active:
+                return self.tunnel.local_bind_host, self.tunnel.local_bind_port
+
+            if not self._ssh_config:
+                logger.warning("SSH配置未设置，无法重连")
+                return None
+
+            logger.warning("检测到SSH隧道断开，尝试重新连接...")
+            try:
+                return self._start_tunnel()
+            except Exception as e:
+                logger.error(f"SSH隧道重连失败: {e}")
+                return None
 
     def stop(self):
         """停止SSH隧道"""
-        if self.tunnel and self.tunnel.is_active:
-            self.tunnel.stop()
-            logger.info("SSH隧道已停止")
-            self.tunnel = None
+        self._should_stop = True
+        with self._lock:
+            if self.tunnel and self.tunnel.is_active:
+                try:
+                    self.tunnel.stop()
+                    logger.info("SSH隧道已停止")
+                except Exception as e:
+                    logger.warning(f"停止SSH隧道时出错: {e}")
+                finally:
+                    self.tunnel = None
 
     def is_active(self) -> bool:
         """检查隧道是否活跃"""
