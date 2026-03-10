@@ -41,6 +41,17 @@ def get_git_log(limit: int = Query(20, le=100), project_id: Optional[int] = Quer
         logger.warning(f"无效的Git仓库: path={repo_path}")
         return []
 
+    # 检查是否有提交
+    try:
+        # 尝试获取任何提交
+        next(repo.iter_commits(max_count=1))
+    except StopIteration:
+        logger.info(f"Git仓库暂无提交记录: path={repo_path}")
+        return []
+    except Exception as e:
+        logger.warning(f"无法读取Git提交: path={repo_path}, error={str(e)}")
+        return []
+
     commits = []
     for commit in repo.iter_commits(max_count=limit):
         changed_files = []

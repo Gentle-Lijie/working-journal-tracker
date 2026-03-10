@@ -1,5 +1,10 @@
 """项目管理API"""
 
+import os
+import subprocess
+import sys
+from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -9,6 +14,8 @@ from backend.database import get_db_session
 from backend.models.project import Project
 from shared.logging_config import get_logger
 from shared.path_map import get_path_map
+from shared.platform_compat import detach_process_args, kill_process
+from shared.utils import get_app_dir, get_daemon_pid, remove_daemon_pid
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -158,3 +165,108 @@ def get_tracker_status():
     status = get_all_daemon_pids()
     logger.info(f"返回 {len(status)} 个追踪器状态")
     return status
+
+
+@router.post("/{project_id}/start")
+def start_tracker(project_id: int):
+    """启动项目的追踪器"""
+    logger.info(f"启动追踪器: project_id={project_id}")
+
+    from backend.database import init_database
+    from backend.models.project import Project
+    from backend.models.work_session import WorkSession
+    from shared.constants import SESSION_STATUS_ACTIVE
+
+    init_database()
+    path_map = get_path_map()
+
+    with get_db_session() as session:
+        project = session.query(Project).get(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="项目不存在")
+
+        if not project.is_active:
+            raise HTTPException(status_code=400, detail="项目已停用，请先启用项目")
+
+        # 获取项目路径
+        repo_path = path_map.get_path(project.name)
+        if not repo_path:
+            raise HTTPException(status_code=400, detail="项目未配置路径，请先设置路径")
+
+        repo_path = str(Path(repo_path).resolve())
+
+        # 检查是否已在运行
+        pid = get_daemon_pid(project_id)
+        if pid:
+            raise HTTPException(status_code=400, detail=f"追踪器已在运行中 (PID: {pid})")
+
+        # 创建工作会话
+        work_session = WorkSession(
+            start_time=datetime.now(),
+            status=SESSION_STATUS_ACTIVE,
+            project_id=project_id,
+        )
+        session.add(work_session)
+        session.flush()
+        session_id = work_session.id
+
+    # 启动守护进程
+    try:
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(Path(__file__).parent.parent.parent)
+
+        # 使用脚本文件而不是内联代码，避免路径转义问题
+        daemon_script = f"""
+import sys
+sys.path.insert(0, r'{Path(__file__).parent.parent.parent}')
+from shared.config import get_config
+get_config().load()
+from backend.database import init_database
+init_database()
+from tracker.daemon import TrackerDaemon
+daemon = TrackerDaemon(session_id={session_id}, repo_path=r'{repo_path}', project_id={project_id})
+daemon.start()
+"""
+        script_path = get_app_dir() / f"start_daemon_{project_id}.py"
+        with open(script_path, "w") as f:
+            f.write(daemon_script)
+
+        process = subprocess.Popen(
+            [sys.executable, str(script_path)],
+            env=env,
+            **detach_process_args(),
+        )
+
+        logger.info(f"追踪器已启动: project_id={project_id}, PID={process.pid}")
+        return {
+            "message": "追踪器已启动",
+            "pid": process.pid,
+            "session_id": session_id,
+        }
+
+    except Exception as e:
+        logger.error(f"启动追踪器失败: {e}")
+        raise HTTPException(status_code=500, detail=f"启动失败: {e}")
+
+
+@router.post("/{project_id}/stop")
+def stop_tracker(project_id: int):
+    """停止项目的追踪器"""
+    logger.info(f"停止追踪器: project_id={project_id}")
+
+    pid = get_daemon_pid(project_id)
+    if not pid:
+        raise HTTPException(status_code=400, detail="追踪器未运行")
+
+    try:
+        kill_process(pid)
+        logger.info(f"追踪器已停止: project_id={project_id}, PID={pid}")
+        return {"message": "追踪器已停止", "pid": pid}
+    except ProcessLookupError:
+        remove_daemon_pid(project_id)
+        raise HTTPException(status_code=404, detail="进程不存在，已清理PID文件")
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="没有权限停止进程")
+    except Exception as e:
+        logger.error(f"停止追踪器失败: {e}")
+        raise HTTPException(status_code=500, detail=f"停止失败: {e}")

@@ -53,20 +53,22 @@
             {{ formatTime(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="250" fixed="right">
+        <el-table-column label="操作" width="300" fixed="right">
           <template #default="{ row }">
-            <el-button type="primary" text size="small" @click="openEditDialog(row)">编辑</el-button>
-            <el-button text size="small" @click="openPathPicker(row)">路径</el-button>
             <el-button
-              v-if="row.is_active"
-              type="warning" text size="small"
-              @click="toggleActive(row, false)"
-            >停用</el-button>
+              v-if="!trackerStatus[row.id]"
+              type="success" text size="small"
+              :loading="actionLoading[row.id]"
+              @click="handleStartTracker(row)"
+            >启动</el-button>
             <el-button
               v-else
-              type="success" text size="small"
-              @click="toggleActive(row, true)"
-            >启用</el-button>
+              type="warning" text size="small"
+              :loading="actionLoading[row.id]"
+              @click="handleStopTracker(row)"
+            >停止</el-button>
+            <el-button type="primary" text size="small" @click="openEditDialog(row)">编辑</el-button>
+            <el-button text size="small" @click="openPathPicker(row)">路径</el-button>
             <el-button type="danger" text size="small" @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -162,6 +164,7 @@ const loading = ref(false)
 const submitting = ref(false)
 const projects = ref([])
 const trackerStatus = ref({})
+const actionLoading = ref({})
 const showInactive = ref(true)
 const showAddDialog = ref(false)
 const showEditDialog = ref(false)
@@ -300,9 +303,41 @@ const handlePathSelect = async (path) => {
   }
 }
 
+const handleStartTracker = async (row) => {
+  if (!row.path) {
+    ElMessage.warning('请先配置项目路径')
+    return
+  }
+  actionLoading.value[row.id] = true
+  try {
+    await projectApi.start(row.id)
+    ElMessage.success('追踪器已启动')
+    loadTrackerStatus()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || '启动失败')
+  } finally {
+    actionLoading.value[row.id] = false
+  }
+}
+
+const handleStopTracker = async (row) => {
+  actionLoading.value[row.id] = true
+  try {
+    await projectApi.stop(row.id)
+    ElMessage.success('追踪器已停止')
+    loadTrackerStatus()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || '停止失败')
+  } finally {
+    actionLoading.value[row.id] = false
+  }
+}
+
 onMounted(() => {
   loadProjects()
   loadTrackerStatus()
+  // 定时刷新追踪器状态
+  setInterval(loadTrackerStatus, 10000)
 })
 </script>
 

@@ -61,6 +61,12 @@ export const projectApi = {
   trackerStatus() {
     return client.get('/projects/tracker-status/all')
   },
+  start(id) {
+    return client.post(`/projects/${id}/start`)
+  },
+  stop(id) {
+    return client.post(`/projects/${id}/stop`)
+  },
 }
 
 // 活动记录API

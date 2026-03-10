@@ -190,6 +190,7 @@ const loadGitLog = async () => {
     gitCommits.value = data
   } catch (e) {
     console.error('加载Git日志失败:', e)
+    gitCommits.value = []
   }
 }
 
@@ -203,6 +204,7 @@ const loadFileActivities = async () => {
     )
   } catch (e) {
     console.error('加载文件活动失败:', e)
+    fileActivities.value = []
   }
 }
 
