@@ -16,7 +16,7 @@
           />
         </el-form-item>
         <el-form-item label="工作类型">
-          <el-select v-model="workType" placeholder="全部" clearable>
+          <el-select v-model="workType" placeholder="全部" clearable style="width: 120px">
             <el-option label="开发" value="开发" />
             <el-option label="会议" value="会议" />
             <el-option label="调研" value="调研" />
