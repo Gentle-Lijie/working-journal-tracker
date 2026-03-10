@@ -1,10 +1,8 @@
 """CLI stop命令 - 停止追踪"""
 
-import os
-import signal
-
 from rich.console import Console
 
+from shared.platform_compat import kill_process
 from shared.utils import get_all_daemon_pids, get_daemon_pid, remove_daemon_pid
 
 console = Console()
@@ -13,7 +11,7 @@ console = Console()
 def _stop_by_project_id(project_id: int, pid: int, generate_summary: bool = False):
     """停止指定项目的追踪器"""
     try:
-        os.kill(pid, signal.SIGTERM)
+        kill_process(pid)
         console.print(f"[green]追踪器已停止: project_id={project_id}, PID={pid}[/green]")
 
         if generate_summary:
@@ -67,7 +65,7 @@ def run_stop(generate_summary: bool = False, project_name: str | None = None):
 
     if old_pid:
         try:
-            os.kill(old_pid, signal.SIGTERM)
+            kill_process(old_pid)
             console.print(f"[green]追踪器已停止 (PID: {old_pid})[/green]")
         except ProcessLookupError:
             console.print("[yellow]进程不存在，清理PID文件[/yellow]")

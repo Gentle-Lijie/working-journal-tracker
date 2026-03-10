@@ -24,7 +24,9 @@ def run_config_init():
 
     config = get_config()
     config.save()
-    os.chmod(config_path, 0o600)
+    from shared.platform_compat import secure_chmod
+
+    secure_chmod(config_path)
 
     console.print(f"[green]配置文件已创建: {config_path}[/green]")
     console.print("[dim]请编辑配置文件，设置数据库连接信息[/dim]")

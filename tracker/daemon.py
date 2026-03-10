@@ -10,6 +10,7 @@ from pathlib import Path
 
 from shared.config import get_config
 from shared.constants import LOG_FILE, SESSION_STATUS_STOPPED
+from shared.platform_compat import IS_WINDOWS
 from shared.utils import get_app_dir, remove_daemon_pid, save_daemon_pid
 
 logger = logging.getLogger(__name__)
@@ -35,9 +36,10 @@ class TrackerDaemon:
         # 写入PID文件
         self._write_pid()
 
-        # 设置信号处理
-        signal.signal(signal.SIGTERM, self._signal_handler)
+        # 设置信号处理（Windows 不支持 SIGTERM 注册）
         signal.signal(signal.SIGINT, self._signal_handler)
+        if not IS_WINDOWS:
+            signal.signal(signal.SIGTERM, self._signal_handler)
 
         # 配置日志
         self._setup_logging()

@@ -12,6 +12,7 @@ from backend.database import get_db_session, init_database
 from backend.models.project import Project
 from backend.models.work_session import WorkSession
 from shared.constants import SESSION_STATUS_ACTIVE
+from shared.platform_compat import detach_process_args
 from shared.utils import get_app_dir, get_daemon_pid
 
 console = Console()
@@ -103,7 +104,7 @@ daemon.start()
 """,
             ],
             env=env,
-            start_new_session=True,
+            **detach_process_args(),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )

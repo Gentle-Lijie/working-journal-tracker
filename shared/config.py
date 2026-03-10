@@ -140,7 +140,9 @@ class AppConfig:
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w") as f:
             yaml.dump(self._config, f, default_flow_style=False, allow_unicode=True)
-        os.chmod(path, 0o600)
+        from shared.platform_compat import secure_chmod
+
+        secure_chmod(path)
 
     def _ensure_loaded(self):
         if not self._loaded:

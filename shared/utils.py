@@ -7,6 +7,7 @@ from pathlib import Path
 from cryptography.fernet import Fernet
 
 from shared.constants import APP_DIR, SECRET_KEY_FILE
+from shared.platform_compat import is_process_running, secure_chmod
 
 
 def get_app_dir() -> Path:
@@ -23,7 +24,7 @@ def get_or_create_secret_key() -> bytes:
         return key_path.read_bytes()
     key = Fernet.generate_key()
     key_path.write_bytes(key)
-    os.chmod(key_path, 0o600)
+    secure_chmod(key_path)
     return key
 
 
@@ -91,9 +92,10 @@ def get_daemon_pid(project_id: int | None = None) -> int | None:
     if pid_path.exists():
         try:
             pid = int(pid_path.read_text().strip())
-            os.kill(pid, 0)
-            return pid
-        except (ValueError, ProcessLookupError, PermissionError):
+            if is_process_running(pid):
+                return pid
+            pid_path.unlink(missing_ok=True)
+        except ValueError:
             pid_path.unlink(missing_ok=True)
     return None
 
@@ -117,8 +119,10 @@ def get_all_daemon_pids() -> dict[int, int]:
         try:
             project_id = int(pid_file.stem.split("-", 1)[1])
             pid = int(pid_file.read_text().strip())
-            os.kill(pid, 0)
-            result[project_id] = pid
-        except (ValueError, ProcessLookupError, PermissionError, IndexError):
+            if is_process_running(pid):
+                result[project_id] = pid
+            else:
+                pid_file.unlink(missing_ok=True)
+        except (ValueError, IndexError):
             pid_file.unlink(missing_ok=True)
     return result
