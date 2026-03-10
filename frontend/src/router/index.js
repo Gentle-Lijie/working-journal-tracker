@@ -1,0 +1,16 @@
+import { createRouter, createWebHistory } from 'vue-router'
+import Dashboard from '../views/Dashboard.vue'
+
+const routes = [
+  { path: '/', name: 'Dashboard', component: Dashboard },
+  { path: '/journals', name: 'Journals', component: () => import('../views/Journals.vue') },
+  { path: '/config', name: 'Config', component: () => import('../views/Config.vue') },
+  { path: '/stats', name: 'Stats', component: () => import('../views/Stats.vue') },
+]
+
+const router = createRouter({
+  history: createWebHistory(),
+  routes,
+})
+
+export default router

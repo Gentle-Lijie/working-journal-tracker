@@ -1,0 +1,43 @@
+# 工作日志追踪工具配置文件示例
+# 复制此文件到 ~/.work-journal/config.yaml 并修改
+
+database:
+  host: localhost
+  port: 3307            # SSH隧道本地端口
+  user: work_journal
+  password: ${DB_PASSWORD}  # 从环境变量读取
+  database: work_journal
+
+ssh:
+  enabled: true
+  config_name: default  # 从数据库中读取SSH配置
+
+tracker:
+  git_check_interval: 30    # Git检查间隔（秒）
+  file_batch_size: 10       # 文件变更批量写入阈值
+  file_batch_interval: 300  # 文件变更定时写入间隔（秒）
+  watch_paths:
+    - "."                   # 监控的目录列表
+  ignored_patterns:
+    - "*.pyc"
+    - "__pycache__"
+    - "node_modules"
+    - ".git"
+    - ".idea"
+    - ".vscode"
+    - "*.swp"
+    - ".DS_Store"
+    - "*.log"
+    - "dist"
+    - "build"
+    - "*.egg-info"
+    - ".env"
+
+ai:
+  default_config: default   # 默认API配置名称
+  retry_attempts: 3
+  timeout: 30
+
+web:
+  host: 127.0.0.1
+  port: 8000
