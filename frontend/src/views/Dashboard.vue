@@ -2,6 +2,21 @@
   <div class="dashboard">
     <h2>仪表盘</h2>
 
+    <!-- 自动刷新控制 -->
+    <div class="refresh-bar">
+      <span v-if="autoRefresh" class="refresh-status">
+        <span class="refresh-dot" />
+        {{ refreshCountdown }}s 后刷新
+      </span>
+      <el-switch v-model="autoRefresh" active-text="自动刷新" inactive-text="" size="small" />
+      <el-select v-model="refreshInterval" size="small" class="refresh-select" :disabled="!autoRefresh">
+        <el-option :value="15" label="15秒" />
+        <el-option :value="30" label="30秒" />
+        <el-option :value="60" label="1分钟" />
+        <el-option :value="120" label="2分钟" />
+      </el-select>
+    </div>
+
     <!-- 今日概览卡片 -->
     <el-row :gutter="20" class="stat-cards">
       <el-col :span="6">
@@ -127,7 +142,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import MarkdownIt from 'markdown-it'
 import { statsApi, activityApi, journalApi, gitApi } from '../api/client'
 import { useProjectStore } from '../stores/project'
@@ -140,6 +155,13 @@ const stats = ref({})
 const gitCommits = ref([])
 const fileActivities = ref([])
 const journals = ref([])
+
+// 自动刷新控制
+const autoRefresh = ref(true)
+const refreshInterval = ref(30)  // 默认 30 秒
+const refreshCountdown = ref(30)
+let refreshTimer = null
+let countdownTimer = null
 
 const formatDuration = (seconds) => {
   const hours = Math.floor(seconds / 3600)
@@ -224,11 +246,67 @@ const loadAll = () => {
   loadGitLog()
   loadFileActivities()
   loadJournals()
+  resetCountdown()
+}
+
+const resetCountdown = () => {
+  refreshCountdown.value = refreshInterval.value
+}
+
+const startAutoRefresh = () => {
+  stopAutoRefresh()
+  if (!autoRefresh.value) return
+
+  // 倒计时定时器（每秒更新）
+  countdownTimer = setInterval(() => {
+    refreshCountdown.value--
+    if (refreshCountdown.value <= 0) {
+      refreshCountdown.value = refreshInterval.value
+    }
+  }, 1000)
+
+  // 刷新定时器
+  refreshTimer = setInterval(() => {
+    loadAll()
+  }, refreshInterval.value * 1000)
+}
+
+const stopAutoRefresh = () => {
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+  if (countdownTimer) {
+    clearInterval(countdownTimer)
+    countdownTimer = null
+  }
 }
 
 watch(() => projectStore.currentProjectId, loadAll)
 
-onMounted(loadAll)
+// 监听自动刷新开关和间隔变化
+watch(autoRefresh, (enabled) => {
+  if (enabled) {
+    startAutoRefresh()
+  } else {
+    stopAutoRefresh()
+  }
+})
+
+watch(refreshInterval, () => {
+  if (autoRefresh.value) {
+    startAutoRefresh()
+  }
+})
+
+onMounted(() => {
+  loadAll()
+  startAutoRefresh()
+})
+
+onUnmounted(() => {
+  stopAutoRefresh()
+})
 </script>
 
 <style scoped>
@@ -238,6 +316,13 @@ onMounted(loadAll)
 .section-card { margin-bottom: 20px; }
 .activity-section { margin-bottom: 0; }
 .card-header { display: flex; justify-content: space-between; align-items: center; }
+
+/* 自动刷新控制栏 */
+.refresh-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; justify-content: flex-end; }
+.refresh-select { width: 90px; }
+.refresh-status { font-size: 12px; color: #909399; display: flex; align-items: center; gap: 6px; }
+.refresh-dot { width: 6px; height: 6px; border-radius: 50%; background: #67c23a; display: inline-block; animation: pulse 2s infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
 /* 活动列表 */
 .activity-list { max-height: 450px; overflow-y: auto; }

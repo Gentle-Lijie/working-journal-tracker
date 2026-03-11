@@ -1,5 +1,6 @@
 """Git提交监控器"""
 
+import gc
 import logging
 import time
 from datetime import datetime
@@ -14,6 +15,9 @@ from shared.constants import ACTIVITY_TYPE_GIT_COMMIT
 
 logger = logging.getLogger(__name__)
 
+# GitPython 内存泄漏缓解：每 N 次检查后重建 Repo 对象
+_REPO_REFRESH_INTERVAL = 60
+
 
 class GitMonitor:
     """Git提交监控器"""
@@ -26,6 +30,7 @@ class GitMonitor:
         self.last_commit_hash = None
         self.repo = None
         self._running = False
+        self._check_count = 0  # 用于定期重建 Repo 对象
 
     def initialize(self):
         """初始化Git仓库"""
@@ -37,6 +42,24 @@ class GitMonitor:
         except (InvalidGitRepositoryError, GitCommandError) as e:
             logger.warning(f"不是有效的Git仓库: {self.repo_path}, {e}")
             self.repo = None
+
+    def _close_repo(self):
+        """关闭并清理 Repo 对象（缓解 GitPython 内存泄漏）"""
+        if self.repo:
+            try:
+                self.repo.close()
+                self.repo.__del__()
+            except Exception as e:
+                logger.debug(f"关闭 Repo 对象时出错（可忽略）: {e}")
+            finally:
+                self.repo = None
+                gc.collect()  # 强制垃圾回收
+
+    def _refresh_repo(self):
+        """定期重建 Repo 对象（缓解 GitPython 内存泄漏）"""
+        logger.info("重建 Repo 对象以释放内存...")
+        self._close_repo()
+        self.initialize()
 
     def start(self):
         """启动监控"""
@@ -50,6 +73,13 @@ class GitMonitor:
         while self._running:
             try:
                 self._check_new_commits()
+                self._check_count += 1
+
+                # 定期重建 Repo 对象，释放 GitPython 累积的内存
+                if self._check_count >= _REPO_REFRESH_INTERVAL:
+                    self._refresh_repo()
+                    self._check_count = 0
+
             except Exception as e:
                 logger.error(f"检查Git提交时出错: {e}")
 
@@ -58,6 +88,7 @@ class GitMonitor:
     def stop(self):
         """停止监控"""
         self._running = False
+        self._close_repo()
         logger.info("Git监控器已停止")
 
     def _check_new_commits(self):
@@ -87,45 +118,54 @@ class GitMonitor:
 
                 self.last_commit_hash = current_commit.hexsha
 
+            # 清理 GitPython 内部缓存
+            self.repo.git.clear_cache()
+
         except Exception as e:
             logger.error(f"检查提交时出错: {e}")
 
     def _record_commit(self, commit):
         """记录Git提交"""
         try:
-            # 获取变更的文件
+            # 获取变更的文件（提取纯数据后立即释放 diff 对象）
             changed_files = []
             if commit.parents:
                 diffs = commit.parents[0].diff(commit)
                 changed_files = [d.a_path or d.b_path for d in diffs]
+                del diffs  # 显式释放 diff 对象
             else:
                 # 首次提交
-                changed_files = list(commit.stats.files.keys())
+                stats_files = list(commit.stats.files.keys())
+                changed_files = stats_files
 
+            # 提取纯 Python 数据，避免持有 Git 对象引用
             metadata = {
-                "commit_hash": commit.hexsha,
+                "commit_hash": str(commit.hexsha),
                 "author": str(commit.author),
-                "author_email": commit.author.email,
+                "author_email": str(commit.author.email),
                 "changed_files": changed_files,
                 "stats": {
-                    "insertions": commit.stats.total["insertions"],
-                    "deletions": commit.stats.total["deletions"],
-                    "files": commit.stats.total["files"],
+                    "insertions": int(commit.stats.total["insertions"]),
+                    "deletions": int(commit.stats.total["deletions"]),
+                    "files": int(commit.stats.total["files"]),
                 },
             }
+            commit_time = datetime.fromtimestamp(commit.committed_date)
+            commit_msg = str(commit.message.strip())
+            commit_hash_short = str(commit.hexsha[:8])
 
             with get_db_session() as session:
                 activity = Activity(
                     session_id=self.session_id,
                     project_id=self.project_id,
                     activity_type=ACTIVITY_TYPE_GIT_COMMIT,
-                    timestamp=datetime.fromtimestamp(commit.committed_date),
-                    description=commit.message.strip(),
+                    timestamp=commit_time,
+                    description=commit_msg,
                     metadata_json=metadata,
                 )
                 session.add(activity)
 
-            logger.info(f"记录Git提交: {commit.hexsha[:8]} - {commit.message[:50]}")
+            logger.info(f"记录Git提交: {commit_hash_short} - {commit_msg[:50]}")
 
         except Exception as e:
             logger.error(f"记录提交失败: {e}")

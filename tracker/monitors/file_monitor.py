@@ -64,6 +64,11 @@ class FileChangeHandler(FileSystemEventHandler):
         }
 
         with self._lock:
+            # 防止缓冲区无限增长（batch_size 的 100 倍为上限）
+            if len(self._buffer) >= self.batch_size * 100:
+                logger.warning(f"事件缓冲区已满（{len(self._buffer)} 条），丢弃旧事件")
+                self._buffer = self._buffer[-self.batch_size:]
+
             self._buffer.append(event_data)
             if len(self._buffer) >= self.batch_size:
                 self._flush()
@@ -98,6 +103,7 @@ class FileChangeHandler(FileSystemEventHandler):
 
         except Exception as e:
             logger.error(f"写入文件变更记录失败: {e}")
+            # 失败时不重新加入缓冲区，避免无限累积
 
     def flush_remaining(self):
         """刷新剩余的缓冲区数据"""
@@ -149,8 +155,11 @@ class FileMonitor:
         """停止文件监控"""
         self._running = False
 
+        # 取消并等待 Timer 完成
         if self._flush_timer:
             self._flush_timer.cancel()
+            self._flush_timer.join()  # 等待 Timer 线程结束
+            self._flush_timer = None
 
         self.observer.stop()
         self.observer.join()
