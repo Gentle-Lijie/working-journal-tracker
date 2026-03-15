@@ -2,6 +2,7 @@
 
 import gc
 import logging
+import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
@@ -15,8 +16,8 @@ from shared.constants import ACTIVITY_TYPE_GIT_COMMIT
 
 logger = logging.getLogger(__name__)
 
-# GitPython 内存泄漏缓解：每 N 次检查后重建 Repo 对象
-_REPO_REFRESH_INTERVAL = 60
+# GitPython 内存泄漏缓解：每 N 次检查后重建 Repo 对象（更频繁）
+_REPO_REFRESH_INTERVAL = 20  # 约 10 分钟刷新一次（check_interval=30s）
 
 
 class GitMonitor:
@@ -47,8 +48,13 @@ class GitMonitor:
         """关闭并清理 Repo 对象（缓解 GitPython 内存泄漏）"""
         if self.repo:
             try:
+                # 清理 GitPython 内部缓存
+                if hasattr(self.repo, 'git') and hasattr(self.repo.git, 'clear_cache'):
+                    self.repo.git.clear_cache()
+                # 清理引用缓存
+                if hasattr(self.repo, 'references'):
+                    self.repo.references._clear_cache()
                 self.repo.close()
-                self.repo.__del__()
             except Exception as e:
                 logger.debug(f"关闭 Repo 对象时出错（可忽略）: {e}")
             finally:
@@ -97,62 +103,130 @@ class GitMonitor:
             return
 
         try:
-            # 刷新仓库状态
-            self.repo.remotes.origin.fetch() if self.repo.remotes else None
-            current_commit = self.repo.head.commit
+            # 使用 git 命令行获取当前 commit hash，避免 GitPython 缓存
+            result = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=self.repo_path,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                logger.debug(f"获取当前 commit 失败: {result.stderr}")
+                return
 
-            if current_commit.hexsha != self.last_commit_hash:
-                # 获取所有新提交
+            current_hash = result.stdout.strip()
+
+            if current_hash != self.last_commit_hash:
+                # 获取所有新提交（使用 git 命令行，避免 GitPython 内存泄漏）
                 if self.last_commit_hash:
                     try:
-                        old_commit = self.repo.commit(self.last_commit_hash)
-                        new_commits = list(self.repo.iter_commits(f"{old_commit}..{current_commit}"))
+                        log_result = subprocess.run(
+                            ["git", "log", "--format=%H", f"{self.last_commit_hash}..{current_hash}"],
+                            cwd=self.repo_path,
+                            capture_output=True,
+                            text=True,
+                            timeout=30,
+                        )
+                        if log_result.returncode == 0:
+                            new_hashes = [h.strip() for h in log_result.stdout.strip().split("\n") if h.strip()]
+                        else:
+                            new_hashes = [current_hash]
                     except Exception:
-                        new_commits = [current_commit]
+                        new_hashes = [current_hash]
                 else:
-                    new_commits = [current_commit]
+                    new_hashes = [current_hash]
 
-                # 记录每个新提交
-                for commit in reversed(new_commits):
-                    self._record_commit(commit)
+                # 记录每个新提交（逆序，从旧到新）
+                for commit_hash in reversed(new_hashes):
+                    self._record_commit_by_hash(commit_hash)
 
-                self.last_commit_hash = current_commit.hexsha
+                self.last_commit_hash = current_hash
 
-            # 清理 GitPython 内部缓存
-            self.repo.git.clear_cache()
-
+        except subprocess.TimeoutExpired:
+            logger.warning("Git 命令超时")
         except Exception as e:
             logger.error(f"检查提交时出错: {e}")
 
-    def _record_commit(self, commit):
-        """记录Git提交"""
+    def _record_commit_by_hash(self, commit_hash: str):
+        """使用 git 命令行记录提交（避免 GitPython 内存泄漏）"""
         try:
-            # 获取变更的文件（提取纯数据后立即释放 diff 对象）
-            changed_files = []
-            if commit.parents:
-                diffs = commit.parents[0].diff(commit)
-                changed_files = [d.a_path or d.b_path for d in diffs]
-                del diffs  # 显式释放 diff 对象
-            else:
-                # 首次提交
-                stats_files = list(commit.stats.files.keys())
-                changed_files = stats_files
+            # 获取提交信息
+            log_format = "%H%n%an%n%ae%n%ct%n%s%n---STATS---"
+            result = subprocess.run(
+                ["git", "log", "-1", f"--format={log_format}", commit_hash],
+                cwd=self.repo_path,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                logger.error(f"获取提交信息失败: {commit_hash[:8]}")
+                return
 
-            # 提取纯 Python 数据，避免持有 Git 对象引用
+            lines = result.stdout.strip().split("\n")
+            if len(lines) < 5:
+                return
+
+            hash_full = lines[0]
+            author = lines[1]
+            author_email = lines[2]
+            timestamp = int(lines[3])
+            message = "\n".join(lines[4:]).split("---STATS---")[0].strip()
+
+            # 获取变更文件列表（使用 git diff-tree，更快且不缓存）
+            diff_result = subprocess.run(
+                ["git", "diff-tree", "--no-commit-id", "--name-only", "-r", commit_hash],
+                cwd=self.repo_path,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            changed_files = []
+            if diff_result.returncode == 0:
+                changed_files = [f.strip() for f in diff_result.stdout.strip().split("\n") if f.strip()]
+
+            # 获取统计信息
+            stat_result = subprocess.run(
+                ["git", "show", "--numstat", "--format=", commit_hash],
+                cwd=self.repo_path,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            insertions = 0
+            deletions = 0
+            files_count = len(changed_files)
+            if stat_result.returncode == 0:
+                for line in stat_result.stdout.strip().split("\n"):
+                    if line.strip():
+                        parts = line.split()
+                        if len(parts) >= 2:
+                            try:
+                                # 新增行数（- 表示二进制文件）
+                                if parts[0] != "-":
+                                    insertions += int(parts[0])
+                                # 删除行数
+                                if parts[1] != "-":
+                                    deletions += int(parts[1])
+                            except ValueError:
+                                pass
+
+            # 构建元数据（纯 Python 数据，无 GitPython 对象引用）
             metadata = {
-                "commit_hash": str(commit.hexsha),
-                "author": str(commit.author),
-                "author_email": str(commit.author.email),
+                "commit_hash": hash_full,
+                "author": author,
+                "author_email": author_email,
                 "changed_files": changed_files,
                 "stats": {
-                    "insertions": int(commit.stats.total["insertions"]),
-                    "deletions": int(commit.stats.total["deletions"]),
-                    "files": int(commit.stats.total["files"]),
+                    "insertions": insertions,
+                    "deletions": deletions,
+                    "files": files_count,
                 },
             }
-            commit_time = datetime.fromtimestamp(commit.committed_date)
-            commit_msg = str(commit.message.strip())
-            commit_hash_short = str(commit.hexsha[:8])
+            commit_time = datetime.fromtimestamp(timestamp)
+            commit_msg = message
+            commit_hash_short = hash_full[:8]
 
             with get_db_session() as session:
                 activity = Activity(
@@ -167,5 +241,7 @@ class GitMonitor:
 
             logger.info(f"记录Git提交: {commit_hash_short} - {commit_msg[:50]}")
 
+        except subprocess.TimeoutExpired:
+            logger.warning(f"获取提交信息超时: {commit_hash[:8]}")
         except Exception as e:
             logger.error(f"记录提交失败: {e}")
