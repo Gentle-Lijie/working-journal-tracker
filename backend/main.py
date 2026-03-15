@@ -1,15 +1,39 @@
 """FastAPI应用入口"""
 
+import atexit
+import signal
+import sys
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api import activities, ai, config, filesystem, git, journals, logs, projects, stats
 from backend.database import init_database
+from backend.services.ssh_tunnel import cleanup_tunnel, get_tunnel_manager
 from shared.logging_config import setup_logging, get_logger
 
 # 配置日志
 setup_logging()
 logger = get_logger(__name__)
+
+
+def graceful_shutdown(signum=None, frame=None):
+    """优雅关闭：清理所有资源"""
+    logger.info("正在关闭应用...")
+    try:
+        # 停止 SSH 隧道
+        cleanup_tunnel()
+        logger.info("SSH 隧道已清理")
+    except Exception as e:
+        logger.warning(f"清理 SSH 隧道时出错: {e}")
+    logger.info("应用已关闭")
+    sys.exit(0)
+
+
+# 注册信号处理
+signal.signal(signal.SIGINT, graceful_shutdown)
+signal.signal(signal.SIGTERM, graceful_shutdown)
+atexit.register(graceful_shutdown)
 
 # 创建FastAPI应用
 app = FastAPI(
@@ -48,6 +72,17 @@ async def startup_event():
         logger.info("数据库连接已初始化")
     except Exception as e:
         logger.error(f"数据库初始化失败: {e}")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """应用关闭时清理资源"""
+    logger.info("正在关闭应用...")
+    try:
+        cleanup_tunnel()
+        logger.info("SSH 隧道已清理")
+    except Exception as e:
+        logger.warning(f"清理 SSH 隧道时出错: {e}")
 
 
 @app.get("/")

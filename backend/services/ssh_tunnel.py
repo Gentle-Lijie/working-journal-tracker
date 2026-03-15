@@ -1,6 +1,7 @@
 """SSH隧道管理服务"""
 
 import logging
+import socket
 import threading
 import time
 from typing import Optional
@@ -11,6 +12,19 @@ from shared.config import get_config
 from shared.utils import decrypt_value
 
 logger = logging.getLogger(__name__)
+
+
+def test_tcp_connection(host: str, port: int, timeout: float = 5.0) -> bool:
+    """测试 TCP 连接是否可达"""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        result = sock.connect_ex((host, port))
+        sock.close()
+        return result == 0
+    except Exception as e:
+        logger.debug(f"TCP 连接测试失败: {e}")
+        return False
 
 
 class SSHTunnelManager:
@@ -24,7 +38,9 @@ class SSHTunnelManager:
         self._reconnect_thread: Optional[threading.Thread] = None
         self._should_stop = False
         self._max_retries = 5
-        self._retry_delay = 2
+        self._retry_delay = 3  # 初始重试延迟
+        self._connection_timeout = 30  # 连接超时时间
+        self._tcp_test_timeout = 5.0  # TCP 测试超时
 
     def start(self, ssh_config: dict) -> tuple[str, int]:
         """
@@ -57,15 +73,29 @@ class SSHTunnelManager:
     def _start_tunnel(self, retry_count: int = 0) -> tuple[str, int]:
         """内部启动隧道方法（支持重试）"""
         auth_type = self._ssh_config.get("auth_type", "password")
+        host = self._ssh_config["host"]
+        port = self._ssh_config.get("port", 22)
+
+        # 先测试 TCP 连接
+        if not test_tcp_connection(host, port, self._tcp_test_timeout):
+            error_msg = f"SSH 服务器 {host}:{port} TCP 连接不可达"
+            logger.warning(error_msg)
+            if retry_count < self._max_retries:
+                delay = self._retry_delay * (2 ** retry_count)
+                logger.info(f"将在 {delay} 秒后重试 ({retry_count + 1}/{self._max_retries})...")
+                time.sleep(delay)
+                return self._start_tunnel(retry_count + 1)
+            raise ConnectionError(error_msg)
 
         ssh_kwargs = {
-            "ssh_address_or_host": (self._ssh_config["host"], self._ssh_config.get("port", 22)),
+            "ssh_address_or_host": (host, port),
             "ssh_username": self._ssh_config["username"],
             "remote_bind_address": (
                 self._ssh_config.get("remote_host", "127.0.0.1"),
                 self._ssh_config.get("remote_port", 3306),
             ),
             "local_bind_address": ("127.0.0.1", 0),  # 自动分配端口
+            "set_keepalive": 30,  # 保持连接活跃
         }
 
         if auth_type == "password":
@@ -97,7 +127,15 @@ class SSHTunnelManager:
             return self.tunnel.local_bind_host, self.tunnel.local_bind_port
 
         except Exception as e:
-            logger.error(f"启动SSH隧道失败: {e}")
+            error_str = str(e)
+            # 识别特定错误类型
+            if "Connection reset by peer" in error_str:
+                logger.error(f"SSH 连接被服务器重置，可能是服务器连接数限制或防火墙规则")
+            elif "timed out" in error_str.lower():
+                logger.error(f"SSH 连接超时")
+            else:
+                logger.error(f"启动SSH隧道失败: {e}")
+
             if retry_count < self._max_retries:
                 delay = self._retry_delay * (2 ** retry_count)  # 指数退避
                 logger.info(f"将在 {delay} 秒后重试 ({retry_count + 1}/{self._max_retries})...")
@@ -126,10 +164,11 @@ class SSHTunnelManager:
         """停止SSH隧道"""
         self._should_stop = True
         with self._lock:
-            if self.tunnel and self.tunnel.is_active:
+            if self.tunnel:
                 try:
-                    self.tunnel.stop()
-                    logger.info("SSH隧道已停止")
+                    if self.tunnel.is_active:
+                        self.tunnel.stop()
+                        logger.info("SSH隧道已停止")
                 except Exception as e:
                     logger.warning(f"停止SSH隧道时出错: {e}")
                 finally:
@@ -156,3 +195,11 @@ def get_tunnel_manager() -> SSHTunnelManager:
     if _tunnel_manager is None:
         _tunnel_manager = SSHTunnelManager()
     return _tunnel_manager
+
+
+def cleanup_tunnel():
+    """清理 SSH 隧道（用于信号处理）"""
+    global _tunnel_manager
+    if _tunnel_manager:
+        _tunnel_manager.stop()
+        _tunnel_manager = None

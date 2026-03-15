@@ -10,15 +10,59 @@ cd "$PROJECT_DIR"
 
 echo "=== 启动开发环境 ==="
 
+# 存储所有子进程 PID
+declare -a CHILD_PIDS=()
+
+# 清理函数：杀死所有子进程
+cleanup() {
+    echo ""
+    echo "=== 正在停止所有服务 ==="
+
+    # 1. 停止所有追踪器守护进程
+    echo "停止追踪器..."
+    work-journal stop 2>/dev/null || true
+
+    # 2. 杀死所有记录的子进程
+    for pid in "${CHILD_PIDS[@]}"; do
+        if kill -0 "$pid" 2>/dev/null; then
+            echo "停止进程 $pid..."
+            kill "$pid" 2>/dev/null || true
+        fi
+    done
+
+    # 3. 等待进程退出
+    sleep 1
+
+    # 4. 强制杀死仍在运行的进程
+    for pid in "${CHILD_PIDS[@]}"; do
+        if kill -0 "$pid" 2>/dev/null; then
+            echo "强制停止进程 $pid..."
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+    done
+
+    # 5. 清理可能的僵尸进程（后端、前端相关）
+    pkill -f "uvicorn backend.main:app" 2>/dev/null || true
+    pkill -f "vite.*frontend" 2>/dev/null || true
+
+    echo "所有服务已停止"
+    exit 0
+}
+
+# 捕获 Ctrl+C 和 kill 信号
+trap cleanup INT TERM
+
 # 启动后端（后台）
 echo "启动后端服务..."
 uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000 &
 BACKEND_PID=$!
+CHILD_PIDS+=($BACKEND_PID)
 
 # 启动前端（后台）
 echo "启动前端服务..."
 cd "$PROJECT_DIR/frontend" && pnpm dev &
 FRONTEND_PID=$!
+CHILD_PIDS+=($FRONTEND_PID)
 
 # 等待后端就绪后启动追踪器
 cd "$PROJECT_DIR"
@@ -29,10 +73,14 @@ if [ $# -eq 0 ]; then
     # 无参数时追踪当前项目目录
     echo "启动追踪器（监控: .）..."
     work-journal start --path "." &
+    TRACKER_PID=$!
+    CHILD_PIDS+=($TRACKER_PID)
 else
     for TRACK_PATH in "$@"; do
         echo "启动追踪器（监控: $TRACK_PATH）..."
         work-journal start --path "$TRACK_PATH" &
+        TRACKER_PID=$!
+        CHILD_PIDS+=($TRACKER_PID)
     done
 fi
 
@@ -46,14 +94,12 @@ else
         echo "追踪器: 监控 $TRACK_PATH"
     done
 fi
+echo ""
 echo "按 Ctrl+C 停止所有服务"
+echo "PID 列表: ${CHILD_PIDS[*]}"
 
-# Ctrl+C 时停止所有进程
-cleanup() {
-    echo "停止服务..."
-    work-journal stop 2>/dev/null || true
-    kill $BACKEND_PID $FRONTEND_PID 2>/dev/null
-    exit
-}
-trap cleanup INT TERM
-wait
+# 等待任意子进程退出
+wait -n 2>/dev/null || wait
+
+# 如果有进程意外退出，触发清理
+cleanup
