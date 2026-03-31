@@ -69,13 +69,7 @@ cd "$PROJECT_DIR"
 sleep 3
 
 # 支持多个路径参数，每个路径启动独立追踪器
-if [ $# -eq 0 ]; then
-    # 无参数时追踪当前项目目录
-    echo "启动追踪器（监控: .）..."
-    work-journal start --path "." &
-    TRACKER_PID=$!
-    CHILD_PIDS+=($TRACKER_PID)
-else
+if [ $# -gt 0 ]; then
     for TRACK_PATH in "$@"; do
         echo "启动追踪器（监控: $TRACK_PATH）..."
         work-journal start --path "$TRACK_PATH" &
@@ -87,12 +81,12 @@ fi
 echo ""
 echo "后端:   http://127.0.0.1:8000"
 echo "前端:   http://127.0.0.1:5173"
-if [ $# -eq 0 ]; then
-    echo "追踪器: 监控 ."
-else
+if [ $# -gt 0 ]; then
     for TRACK_PATH in "$@"; do
         echo "追踪器: 监控 $TRACK_PATH"
     done
+else
+    echo "追踪器: 未启动（可通过 Web UI 或命令行手动启动）"
 fi
 echo ""
 echo "按 Ctrl+C 停止所有服务"

@@ -153,7 +153,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { projectApi } from '../api/client'
 import { useProjectStore } from '../stores/project'
@@ -174,6 +174,7 @@ const addDirPickerVisible = ref(false)
 const pathPickerVisible = ref(false)
 const pathPickerInitial = ref('')
 const pathPickerProjectId = ref(null)
+let statusIntervalId = null  // 保存定时器 ID，用于清理
 
 const addForm = reactive({ name: '', path: '', description: '' })
 const editForm = reactive({ id: null, name: '', description: '' })
@@ -337,7 +338,15 @@ onMounted(() => {
   loadProjects()
   loadTrackerStatus()
   // 定时刷新追踪器状态
-  setInterval(loadTrackerStatus, 10000)
+  statusIntervalId = setInterval(loadTrackerStatus, 10000)
+})
+
+onUnmounted(() => {
+  // 清理定时器，防止内存泄漏
+  if (statusIntervalId) {
+    clearInterval(statusIntervalId)
+    statusIntervalId = null
+  }
 })
 </script>
 

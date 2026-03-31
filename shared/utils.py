@@ -117,7 +117,15 @@ def get_all_daemon_pids() -> dict[int, int]:
     result = {}
     for pid_file in app_dir.glob("tracker-*.pid"):
         try:
-            project_id = int(pid_file.stem.split("-", 1)[1])
+            # 只匹配 tracker-{project_id}.pid，排除组件 PID 文件
+            name = pid_file.stem  # e.g., "tracker-1" or "tracker-1-git"
+            parts = name.split("-", 1)
+            if len(parts) != 2:
+                continue
+            # 检查是否是组件 PID（包含第二个连字符）
+            if "-" in parts[1]:
+                continue  # 这是组件 PID，跳过
+            project_id = int(parts[1])
             pid = int(pid_file.read_text().strip())
             if is_process_running(pid):
                 result[project_id] = pid
@@ -125,4 +133,120 @@ def get_all_daemon_pids() -> dict[int, int]:
                 pid_file.unlink(missing_ok=True)
         except (ValueError, IndexError):
             pid_file.unlink(missing_ok=True)
+    return result
+
+
+# === 组件 PID 管理 ===
+
+COMPONENT_TYPES = ["git", "file", "journal"]
+"""支持的组件类型"""
+
+
+def save_component_pid(pid: int, project_id: int, component: str):
+    """保存组件进程 PID 文件
+
+    Args:
+        pid: 进程 ID
+        project_id: 项目 ID
+        component: 组件类型 (git/file/journal)
+    """
+    if component not in COMPONENT_TYPES:
+        raise ValueError(f"无效的组件类型: {component}，支持: {COMPONENT_TYPES}")
+    pid_name = f"tracker-{project_id}-{component}.pid"
+    pid_path = get_app_dir() / pid_name
+    pid_path.write_text(str(pid))
+
+
+def get_component_pid(project_id: int, component: str) -> int | None:
+    """获取组件进程 PID
+
+    Args:
+        project_id: 项目 ID
+        component: 组件类型 (git/file/journal)
+
+    Returns:
+        运行中的进程 PID，如果未运行返回 None
+    """
+    if component not in COMPONENT_TYPES:
+        raise ValueError(f"无效的组件类型: {component}，支持: {COMPONENT_TYPES}")
+    pid_name = f"tracker-{project_id}-{component}.pid"
+    pid_path = get_app_dir() / pid_name
+    if pid_path.exists():
+        try:
+            pid = int(pid_path.read_text().strip())
+            if is_process_running(pid):
+                return pid
+            pid_path.unlink(missing_ok=True)
+        except ValueError:
+            pid_path.unlink(missing_ok=True)
+    return None
+
+
+def remove_component_pid(project_id: int, component: str):
+    """删除组件进程 PID 文件
+
+    Args:
+        project_id: 项目 ID
+        component: 组件类型 (git/file/journal)
+    """
+    if component not in COMPONENT_TYPES:
+        raise ValueError(f"无效的组件类型: {component}，支持: {COMPONENT_TYPES}")
+    pid_name = f"tracker-{project_id}-{component}.pid"
+    pid_path = get_app_dir() / pid_name
+    pid_path.unlink(missing_ok=True)
+
+
+def get_all_component_pids(project_id: int) -> dict[str, int | None]:
+    """获取项目所有组件的 PID 状态
+
+    Args:
+        project_id: 项目 ID
+
+    Returns:
+        {component: pid | None} 字典
+    """
+    return {comp: get_component_pid(project_id, comp) for comp in COMPONENT_TYPES}
+
+
+def get_all_projects_components_status() -> dict[int, dict[str, int | None]]:
+    """获取所有项目所有组件的状态
+
+    Returns:
+        {project_id: {component: pid | None}} 字典
+    """
+    app_dir = get_app_dir()
+    result: dict[int, dict[str, int | None]] = {}
+
+    # 扫描所有组件 PID 文件
+    for pid_file in app_dir.glob("tracker-*-*.pid"):
+        try:
+            name = pid_file.stem  # e.g., "tracker-1-git"
+            parts = name.split("-", 1)
+            if len(parts) != 2:
+                continue
+            rest = parts[1]  # e.g., "1-git"
+            if "-" not in rest:
+                continue  # 这是项目 PID，跳过
+
+            # 解析 project_id 和 component
+            id_comp = rest.split("-", 1)
+            if len(id_comp) != 2:
+                continue
+            project_id = int(id_comp[0])
+            component = id_comp[1]
+
+            if component not in COMPONENT_TYPES:
+                continue
+
+            if project_id not in result:
+                result[project_id] = {comp: None for comp in COMPONENT_TYPES}
+
+            pid = int(pid_file.read_text().strip())
+            if is_process_running(pid):
+                result[project_id][component] = pid
+            else:
+                pid_file.unlink(missing_ok=True)
+        except (ValueError, IndexError):
+            pid_file.unlink(missing_ok=True)
+
     return result

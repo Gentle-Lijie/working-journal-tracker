@@ -1,5 +1,6 @@
 """日志生成服务"""
 
+import gc
 import logging
 from datetime import datetime
 
@@ -86,6 +87,12 @@ class JournalGenerator:
             db_session.expunge(entry)
 
             logger.info(f"日志条目已生成: #{entry.id}")
+
+            # 清理临时变量，防止内存泄漏
+            del activity_descriptions
+            del activities
+            gc.collect()
+
             return entry
 
     def _basic_summary(self, activities) -> str:

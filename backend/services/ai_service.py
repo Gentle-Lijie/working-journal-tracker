@@ -45,8 +45,8 @@ class AIService:
 
     def __init__(self):
         self._config = get_config()
-        self._client = None
-        self._api_config = None
+        # 注意：不缓存 _client 和 _api_config，每次请求重新获取
+        # 防止长时间运行时累积陈旧引用
 
     def _get_active_config(self) -> Optional[dict]:
         """获取活跃的API配置"""

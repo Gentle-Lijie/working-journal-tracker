@@ -1,5 +1,6 @@
 """守护进程主逻辑"""
 
+import gc
 import logging
 import os
 import signal
@@ -95,6 +96,7 @@ class TrackerDaemon:
         journal_thread.start()
 
         # 保持主线程运行
+        gc_counter = 0
         try:
             while self._running:
                 git_thread.join(timeout=1)
@@ -103,6 +105,12 @@ class TrackerDaemon:
                     logger.warning("Git监控线程异常退出，正在重启...")
                     git_thread = threading.Thread(target=self.git_monitor.start, daemon=True)
                     git_thread.start()
+
+                # 定期垃圾回收（每 60 秒）
+                gc_counter += 1
+                if gc_counter >= 60:
+                    gc.collect()
+                    gc_counter = 0
         except (KeyboardInterrupt, SystemExit):
             self.stop()
 

@@ -15,7 +15,16 @@ from backend.models.project import Project
 from shared.logging_config import get_logger
 from shared.path_map import get_path_map
 from shared.platform_compat import detach_process_args, kill_process
-from shared.utils import get_app_dir, get_daemon_pid, remove_daemon_pid
+from shared.utils import (
+    COMPONENT_TYPES,
+    get_all_component_pids,
+    get_all_projects_components_status,
+    get_app_dir,
+    get_component_pid,
+    get_daemon_pid,
+    remove_component_pid,
+    remove_daemon_pid,
+)
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -282,3 +291,180 @@ def stop_tracker(project_id: int):
     except Exception as e:
         logger.error(f"停止追踪器失败: {e}")
         raise HTTPException(status_code=500, detail=f"停止失败: {e}")
+
+
+# === 组件控制 API ===
+
+
+@router.get("/{project_id}/components/status")
+def get_component_status(project_id: int):
+    """获取项目的组件运行状态"""
+    logger.info(f"查询组件状态: project_id={project_id}")
+    status = get_all_component_pids(project_id)
+    result = {
+        comp: {"running": pid is not None, "pid": pid}
+        for comp, pid in status.items()
+    }
+    logger.info(f"组件状态: {result}")
+    return result
+
+
+@router.get("/components/status/all")
+def get_all_components_status():
+    """获取所有项目的组件运行状态"""
+    logger.info("查询所有项目的组件运行状态")
+    status = get_all_projects_components_status()
+    logger.info(f"返回 {len(status)} 个项目的组件状态")
+    return status
+
+
+@router.post("/{project_id}/components/{component}/start")
+def start_component(project_id: int, component: str):
+    """启动指定组件"""
+    logger.info(f"启动组件: project_id={project_id}, component={component}")
+
+    if component not in COMPONENT_TYPES:
+        raise HTTPException(status_code=400, detail=f"无效的组件类型: {component}，支持: {COMPONENT_TYPES}")
+
+    # 检查是否已在运行
+    existing_pid = get_component_pid(project_id, component)
+    if existing_pid:
+        raise HTTPException(status_code=400, detail=f"组件已在运行中 (PID: {existing_pid})")
+
+    from backend.database import init_database
+    from backend.models.project import Project
+
+    init_database()
+    path_map = get_path_map()
+
+    with get_db_session() as session:
+        project = session.query(Project).get(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="项目不存在")
+
+        if not project.is_active:
+            raise HTTPException(status_code=400, detail="项目已停用，请先启用项目")
+
+        repo_path = path_map.get_path(project.name)
+
+    # 启动组件进程
+    try:
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(Path(__file__).parent.parent.parent)
+
+        # 构建组件启动脚本
+        if component == "git":
+            if not repo_path:
+                raise HTTPException(status_code=400, detail="项目未配置路径，无法启动 Git 监控")
+            repo_path = str(Path(repo_path).resolve())
+            component_script = f"""
+import sys
+sys.path.insert(0, r'{Path(__file__).parent.parent.parent}')
+from tracker.run_component import run_git_monitor
+run_git_monitor(project_id={project_id}, repo_path=r'{repo_path}')
+"""
+        elif component == "file":
+            component_script = f"""
+import sys
+sys.path.insert(0, r'{Path(__file__).parent.parent.parent}')
+from tracker.run_component import run_file_monitor
+run_file_monitor(project_id={project_id}, watch_paths=None)
+"""
+        elif component == "journal":
+            component_script = f"""
+import sys
+sys.path.insert(0, r'{Path(__file__).parent.parent.parent}')
+from tracker.run_component import run_journal_generator
+run_journal_generator(project_id={project_id})
+"""
+        else:
+            raise HTTPException(status_code=400, detail=f"不支持的组件类型: {component}")
+
+        script_path = get_app_dir() / f"start_component_{project_id}_{component}.py"
+        with open(script_path, "w") as f:
+            f.write(component_script)
+
+        process = subprocess.Popen(
+            [sys.executable, str(script_path)],
+            env=env,
+            **detach_process_args(),
+        )
+
+        logger.info(f"组件已启动: project_id={project_id}, component={component}, PID={process.pid}")
+        return {
+            "message": f"{component} 组件已启动",
+            "pid": process.pid,
+            "component": component,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"启动组件失败: {e}")
+        raise HTTPException(status_code=500, detail=f"启动失败: {e}")
+
+
+@router.post("/{project_id}/components/{component}/stop")
+def stop_component(project_id: int, component: str):
+    """停止指定组件"""
+    logger.info(f"停止组件: project_id={project_id}, component={component}")
+
+    if component not in COMPONENT_TYPES:
+        raise HTTPException(status_code=400, detail=f"无效的组件类型: {component}，支持: {COMPONENT_TYPES}")
+
+    pid = get_component_pid(project_id, component)
+    if not pid:
+        raise HTTPException(status_code=400, detail=f"{component} 组件未运行")
+
+    try:
+        kill_process(pid)
+        logger.info(f"组件已停止: project_id={project_id}, component={component}, PID={pid}")
+        return {"message": f"{component} 组件已停止", "pid": pid}
+    except ProcessLookupError:
+        remove_component_pid(project_id, component)
+        raise HTTPException(status_code=404, detail="进程不存在，已清理PID文件")
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="没有权限停止进程")
+    except Exception as e:
+        logger.error(f"停止组件失败: {e}")
+        raise HTTPException(status_code=500, detail=f"停止失败: {e}")
+
+
+@router.post("/{project_id}/components/start-all")
+def start_all_components(project_id: int):
+    """启动项目的所有组件"""
+    logger.info(f"启动所有组件: project_id={project_id}")
+
+    results = {}
+    for component in COMPONENT_TYPES:
+        try:
+            # 调用单个组件启动接口的逻辑
+            result = start_component(project_id, component)
+            results[component] = {"success": True, "pid": result.get("pid")}
+        except HTTPException as e:
+            results[component] = {"success": False, "error": e.detail}
+        except Exception as e:
+            results[component] = {"success": False, "error": str(e)}
+
+    return {"message": "批量启动完成", "results": results}
+
+
+@router.post("/{project_id}/components/stop-all")
+def stop_all_components(project_id: int):
+    """停止项目的所有组件"""
+    logger.info(f"停止所有组件: project_id={project_id}")
+
+    results = {}
+    for component in COMPONENT_TYPES:
+        try:
+            result = stop_component(project_id, component)
+            results[component] = {"success": True, "pid": result.get("pid")}
+        except HTTPException as e:
+            if "未运行" in e.detail:
+                results[component] = {"success": True, "skipped": True}
+            else:
+                results[component] = {"success": False, "error": e.detail}
+        except Exception as e:
+            results[component] = {"success": False, "error": str(e)}
+
+    return {"message": "批量停止完成", "results": results}

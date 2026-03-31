@@ -7,21 +7,18 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from git import Repo
-from git.exc import GitCommandError, InvalidGitRepositoryError
-
 from backend.database import get_db_session
 from backend.models.activity import Activity
 from shared.constants import ACTIVITY_TYPE_GIT_COMMIT
 
 logger = logging.getLogger(__name__)
 
-# GitPython 内存泄漏缓解：每 N 次检查后重建 Repo 对象（更频繁）
-_REPO_REFRESH_INTERVAL = 20  # 约 10 分钟刷新一次（check_interval=30s）
+# 是否使用 GitPython（默认 False，使用 subprocess 避免内存泄漏）
+_USE_GITPYTHON = False
 
 
 class GitMonitor:
-    """Git提交监控器"""
+    """Git提交监控器（使用 subprocess 避免 GitPython 内存泄漏）"""
 
     def __init__(self, repo_path: str, session_id: int, check_interval: int = 30, project_id: int | None = None):
         self.repo_path = Path(repo_path)
@@ -29,49 +26,51 @@ class GitMonitor:
         self.project_id = project_id
         self.check_interval = check_interval
         self.last_commit_hash = None
-        self.repo = None
+        self.repo = None  # 保留兼容性，但不使用
         self._running = False
-        self._check_count = 0  # 用于定期重建 Repo 对象
+        self._check_count = 0
 
     def initialize(self):
-        """初始化Git仓库"""
+        """初始化Git仓库（使用 git 命令行验证）"""
         try:
-            self.repo = Repo(self.repo_path)
-            if self.repo.head.is_valid():
-                self.last_commit_hash = self.repo.head.commit.hexsha
-            logger.info(f"Git监控器已初始化: {self.repo_path}")
-        except (InvalidGitRepositoryError, GitCommandError) as e:
-            logger.warning(f"不是有效的Git仓库: {self.repo_path}, {e}")
-            self.repo = None
+            # 使用 git 命令行验证仓库有效性，避免 GitPython 内存泄漏
+            result = subprocess.run(
+                ["git", "rev-parse", "--git-dir"],
+                cwd=self.repo_path,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                logger.warning(f"不是有效的Git仓库: {self.repo_path}")
+                return
 
-    def _close_repo(self):
-        """关闭并清理 Repo 对象（缓解 GitPython 内存泄漏）"""
-        if self.repo:
-            try:
-                # 清理 GitPython 内部缓存
-                if hasattr(self.repo, 'git') and hasattr(self.repo.git, 'clear_cache'):
-                    self.repo.git.clear_cache()
-                # 清理引用缓存
-                if hasattr(self.repo, 'references'):
-                    self.repo.references._clear_cache()
-                self.repo.close()
-            except Exception as e:
-                logger.debug(f"关闭 Repo 对象时出错（可忽略）: {e}")
-            finally:
-                self.repo = None
-                gc.collect()  # 强制垃圾回收
-
-    def _refresh_repo(self):
-        """定期重建 Repo 对象（缓解 GitPython 内存泄漏）"""
-        logger.info("重建 Repo 对象以释放内存...")
-        self._close_repo()
-        self.initialize()
+            # 获取初始 commit hash
+            result = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=self.repo_path,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode == 0:
+                self.last_commit_hash = result.stdout.strip()
+                logger.info(f"Git监控器已初始化: {self.repo_path}, 当前提交: {self.last_commit_hash[:8]}")
+            else:
+                logger.warning(f"Git仓库为空: {self.repo_path}")
+        except subprocess.TimeoutExpired:
+            logger.warning(f"Git 命令超时: {self.repo_path}")
+        except Exception as e:
+            logger.warning(f"Git监控器初始化失败: {e}")
 
     def start(self):
         """启动监控"""
-        if not self.repo:
-            logger.warning("Git仓库未初始化，跳过监控")
-            return
+        if not self.last_commit_hash:
+            # 再次尝试初始化
+            self.initialize()
+            if not self.last_commit_hash:
+                logger.warning("Git仓库未初始化，跳过监控")
+                return
 
         self._running = True
         logger.info("Git监控器已启动")
@@ -81,9 +80,9 @@ class GitMonitor:
                 self._check_new_commits()
                 self._check_count += 1
 
-                # 定期重建 Repo 对象，释放 GitPython 累积的内存
-                if self._check_count >= _REPO_REFRESH_INTERVAL:
-                    self._refresh_repo()
+                # 定期垃圾回收
+                if self._check_count >= 20:
+                    gc.collect()
                     self._check_count = 0
 
             except Exception as e:
@@ -94,7 +93,9 @@ class GitMonitor:
     def stop(self):
         """停止监控"""
         self._running = False
-        self._close_repo()
+        # 清理引用
+        self.repo = None
+        gc.collect()
         logger.info("Git监控器已停止")
 
     def _check_new_commits(self):

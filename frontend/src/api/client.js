@@ -171,4 +171,32 @@ export const statsApi = {
   },
 }
 
+// 组件控制API
+export const componentApi = {
+  // 获取指定项目的组件状态
+  getStatus(projectId) {
+    return client.get(`/projects/${projectId}/components/status`)
+  },
+  // 获取所有项目的组件状态
+  getAllStatus() {
+    return client.get('/projects/components/status/all')
+  },
+  // 启动组件
+  start(projectId, component) {
+    return client.post(`/projects/${projectId}/components/${component}/start`)
+  },
+  // 停止组件
+  stop(projectId, component) {
+    return client.post(`/projects/${projectId}/components/${component}/stop`)
+  },
+  // 启动所有组件
+  startAll(projectId) {
+    return client.post(`/projects/${projectId}/components/start-all`)
+  },
+  // 停止所有组件
+  stopAll(projectId) {
+    return client.post(`/projects/${projectId}/components/stop-all`)
+  },
+}
+
 export default client

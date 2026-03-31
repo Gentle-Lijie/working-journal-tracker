@@ -97,10 +97,11 @@ def init_database(force_rebuild: bool = False):
     _engine = create_engine(
         db_url,
         pool_pre_ping=True,  # 连接前检测
-        pool_recycle=3600,   # 1小时回收连接
+        pool_recycle=1800,   # 30分钟回收连接（缩短以减少内存占用）
         echo=False,
-        pool_size=5,
-        max_overflow=10,
+        pool_size=3,         # 减小连接池大小
+        max_overflow=5,      # 减小溢出连接数
+        pool_timeout=30,
     )
 
     _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
